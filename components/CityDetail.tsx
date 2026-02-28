@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { City, getCityColor } from '@/lib/types';
+import { useState, useEffect, useMemo } from 'react';
+import { City, WorldState, getCityColor, getAngularDistance } from '@/lib/types';
 
 interface CityDetailProps {
   city: City | null;
+  worldState: WorldState | null;
   onClose: () => void;
+  onCitySelect: (city: City) => void;
 }
 
-export default function CityDetail({ city, onClose }: CityDetailProps) {
+export default function CityDetail({ city, worldState, onClose, onCitySelect }: CityDetailProps) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [loadingImage, setLoadingImage] = useState(false);
   const [imageError, setImageError] = useState(false);
@@ -51,6 +53,19 @@ export default function CityDetail({ city, onClose }: CityDetailProps) {
 
     generateImage();
   }, [city?.id, city?.imagePrompt]);
+
+  // Compute nearby cities
+  const nearbyCities = useMemo(() => {
+    if (!city || !worldState?.cities) return [];
+    return worldState.cities
+      .filter(c => c.id !== city.id)
+      .map(c => ({
+        city: c,
+        distance: getAngularDistance({ lat: city.lat, lng: city.lng }, { lat: c.lat, lng: c.lng }),
+      }))
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 3);
+  }, [city, worldState?.cities]);
 
   if (!city) return null;
 
@@ -135,17 +150,39 @@ export default function CityDetail({ city, onClose }: CityDetailProps) {
           </div>
         )}
 
+        {/* Causal note — above description with accent border */}
+        {city.causalNote && (
+          <div className="mb-3 pl-3 border-l-2 border-amber-500/70">
+            <div className="text-amber-500 text-xs font-semibold uppercase tracking-wider mb-1">What Changed</div>
+            <p className="text-amber-400/90 text-sm italic">
+              {city.causalNote}
+            </p>
+          </div>
+        )}
+
         {/* Description */}
         <p className="text-gray-300 text-sm leading-relaxed mb-3">
           {city.description}
         </p>
 
-        {/* Causal note */}
-        {city.causalNote && (
-          <div className="p-3 bg-amber-900/20 border border-amber-700/30 rounded-lg">
-            <p className="text-amber-400 text-sm italic">
-              {city.causalNote}
-            </p>
+        {/* Nearby cities */}
+        {nearbyCities.length > 0 && (
+          <div className="pt-3 border-t border-gray-800">
+            <div className="text-gray-500 text-xs uppercase tracking-wider mb-2">Nearby</div>
+            <div className="flex flex-wrap gap-2">
+              {nearbyCities.map(({ city: nearby, distance }) => (
+                <button
+                  key={nearby.id}
+                  onClick={() => onCitySelect(nearby)}
+                  className="px-3 py-1.5 bg-gray-800/80 hover:bg-amber-900/40 border border-gray-700/50 hover:border-amber-700/50
+                           rounded-full text-xs text-gray-300 hover:text-amber-300 transition-all flex items-center gap-1.5"
+                >
+                  <span className="w-2 h-2 rounded-full" style={{ backgroundColor: getCityColor(nearby.techLevel) }} />
+                  {nearby.name}
+                  <span className="text-gray-600">{Math.round(distance)}°</span>
+                </button>
+              ))}
+            </div>
           </div>
         )}
       </div>

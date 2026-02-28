@@ -1,0 +1,1 @@
+- When we click on a city, i want to see where it is on the map. Need to bold it and make it appearent

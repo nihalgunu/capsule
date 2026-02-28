@@ -34,19 +34,19 @@ export const useGameStore = create<GameStore>((set, get) => ({
   ...initialState,
 
   initWorld: async (useMock = false) => {
-    set({ loading: true });
+    // Show mock data immediately so the UI is instant
+    set({
+      worldState: MOCK_WORLD_STATE_10000BC,
+      loading: false,
+    });
 
+    if (useMock) return;
+
+    // Generate real world in background and swap it in
     try {
-      if (useMock) {
-        // Use mock data for development
-        set({
-          worldState: MOCK_WORLD_STATE_10000BC,
-          loading: false,
-        });
-        return;
-      }
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000);
 
-      // Call the API to generate the initial world
       const response = await fetch('/api/generate-world', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -54,21 +54,22 @@ export const useGameStore = create<GameStore>((set, get) => ({
           epoch: 1,
           startYear: -10000,
         }),
+        signal: controller.signal,
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to generate world');
-      }
+      clearTimeout(timeout);
+
+      if (!response.ok) throw new Error('Failed to generate world');
 
       const worldState: WorldState = await response.json();
-      set({ worldState, loading: false });
+      set({ worldState });
     } catch (error) {
-      console.error('Error initializing world:', error);
-      // Fall back to mock data on error
-      set({
-        worldState: MOCK_WORLD_STATE_10000BC,
-        loading: false,
-      });
+      // Keep mock data on error/timeout — already showing it
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        console.log('World generation timed out, using mock data');
+      } else {
+        console.error('Error generating world, keeping mock data:', error);
+      }
     }
   },
 
@@ -130,6 +131,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
         loading: false,
         zoomedIn: false,
         zoomLocation: null,
+        selectedCity: null,
       });
 
       return result;

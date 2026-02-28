@@ -20,6 +20,13 @@ export default function NarrativePanel({
   const [isExpanded, setIsExpanded] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  // Auto-expand when narration script arrives
+  useEffect(() => {
+    if (narrationScript) {
+      setIsExpanded(true);
+    }
+  }, [narrationScript]);
+
   // Generate TTS audio when narration script is provided
   useEffect(() => {
     if (!narrationScript || !isPlaying) return;
@@ -36,7 +43,8 @@ export default function NarrativePanel({
         if (response.ok) {
           const data = await response.json();
           if (data.audioBase64) {
-            setAudioUrl(`data:audio/wav;base64,${data.audioBase64}`);
+            const mime = data.mimeType || 'audio/wav';
+            setAudioUrl(`data:${mime};base64,${data.audioBase64}`);
           }
         }
       } catch (error) {
@@ -110,13 +118,23 @@ export default function NarrativePanel({
               {narrative}
             </p>
 
+            {/* Narration script text — always visible when available */}
+            {narrationScript && (
+              <div className="mt-3 pt-3 border-t border-amber-700/20">
+                <div className="text-amber-500/60 text-xs uppercase tracking-wider mb-1">Narration</div>
+                <p className="text-amber-200/80 text-sm leading-relaxed italic">
+                  {narrationScript}
+                </p>
+              </div>
+            )}
+
             {loadingAudio && (
               <div className="mt-3 flex items-center gap-2 text-amber-500/70 text-xs">
                 <svg className="animate-spin h-3 w-3" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
-                Generating narration...
+                Generating narration audio...
               </div>
             )}
           </div>

@@ -7,7 +7,7 @@ const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 // Model configurations
 const MODELS = {
-  reasoning: 'gemini-2.5-pro-preview-06-05', // Main reasoning model
+  reasoning: 'gemini-2.5-flash', // Latest flash model, fast & affordable
   image: 'gemini-2.0-flash-preview-image-generation', // Image generation
   tts: 'gemini-2.5-flash-preview-tts', // Text-to-speech
 };
@@ -217,7 +217,7 @@ Return JSON:
 }
 
 // Generate TTS narration audio
-export async function generateNarration(script: string): Promise<string> {
+export async function generateNarration(script: string): Promise<{ data: string; mimeType: string }> {
   const prompt = `Narrate the following in a documentary voice. Authoritative, measured, slightly awed. Pace it slowly, with natural pauses between geographic shifts:
 
 "${script}"`;
@@ -241,7 +241,10 @@ export async function generateNarration(script: string): Promise<string> {
     if (candidate?.content?.parts) {
       for (const part of candidate.content.parts) {
         if (part.inlineData?.data) {
-          return part.inlineData.data; // Base64 audio
+          return {
+            data: part.inlineData.data,
+            mimeType: part.inlineData.mimeType || 'audio/wav',
+          };
         }
       }
     }

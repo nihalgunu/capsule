@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import dynamic from 'next/dynamic';
-import { City, TradeRoute, getCityColor, getAngularDistance } from '@/lib/types';
+import { City, TradeRoute, Milestone, getCityColor, getAngularDistance } from '@/lib/types';
 import { useGameStore } from '@/lib/store';
 
 // Dynamically import react-globe.gl to avoid SSR issues
@@ -20,6 +20,7 @@ interface GlobeProps {
   onZoomChange?: (altitude: number, location: { lat: number; lng: number }) => void;
   rippleCenter?: { lat: number; lng: number } | null;
   rippleProgress?: number; // 0 to 1
+  milestones?: Milestone[];
 }
 
 export default function Globe({
@@ -27,6 +28,7 @@ export default function Globe({
   onZoomChange,
   rippleCenter,
   rippleProgress = 1,
+  milestones = [],
 }: GlobeProps) {
   const globeRef = useRef<any>(null);
   const { worldState, previousInterventions } = useGameStore();
@@ -67,7 +69,7 @@ export default function Globe({
     [onZoomChange]
   );
 
-  // Filter cities based on ripple progress
+  // Filter cities based on ripple progress with wave-band effect
   const getVisibleCities = useCallback(() => {
     if (!worldState?.cities) return [];
 
@@ -76,17 +78,29 @@ export default function Globe({
       return worldState.cities;
     }
 
-    // Filter based on ripple radius (180 degrees = full globe)
+    // Ripple radius in degrees (180 = full globe)
     const rippleRadius = rippleProgress * 180;
+    const bandWidth = 15; // degrees width of the wave-band
 
     return worldState.cities.map((city) => {
       const distance = getAngularDistance(rippleCenter, { lat: city.lat, lng: city.lng });
 
       if (distance <= rippleRadius) {
-        return city; // Show new state
+        // City is behind the ripple front — apply wave-band scaling
+        const distFromFront = rippleRadius - distance;
+        if (distFromFront < bandWidth) {
+          // In the wave-band: scale cities based on change
+          const change = city.change;
+          if (change === 'brighter' || change === 'new') {
+            return { ...city, brightness: Math.min(city.brightness * 1.8, 1) };
+          } else if (change === 'dimmer' || change === 'gone') {
+            return { ...city, brightness: city.brightness * 0.4 };
+          }
+        }
+        return city; // Show new state normally
       }
 
-      // Show dimmed/hidden state for cities outside ripple
+      // Outside ripple — show dimmed
       return {
         ...city,
         brightness: city.brightness * 0.3,
@@ -99,6 +113,28 @@ export default function Globe({
 
   // Get arc data for trade routes
   const arcsData = worldState?.tradeRoutes || [];
+
+  // Milestones visible based on ripple progress
+  const visibleMilestones = useMemo(() => {
+    if (!rippleCenter || rippleProgress >= 1 || milestones.length === 0) return [];
+
+    const rippleRadius = rippleProgress * 180;
+    return milestones.filter((m) => {
+      const dist = getAngularDistance(rippleCenter, { lat: m.lat, lng: m.lng });
+      return dist <= rippleRadius;
+    });
+  }, [milestones, rippleCenter, rippleProgress]);
+
+  // HTML elements for milestone labels
+  const milestoneElements = useMemo(() => {
+    return visibleMilestones.map((m, i) => ({
+      lat: m.lat,
+      lng: m.lng,
+      label: m.event,
+      year: m.year,
+      id: `milestone-${i}`,
+    }));
+  }, [visibleMilestones]);
 
   // Point layer callbacks (cast to object for react-globe.gl typing)
   const pointLat = (d: object) => (d as City).lat;
@@ -169,6 +205,32 @@ export default function Globe({
     }
   };
 
+  // HTML elements layer callbacks for milestones
+  const htmlLat = (d: object) => (d as { lat: number }).lat;
+  const htmlLng = (d: object) => (d as { lng: number }).lng;
+  const htmlAltitude = () => 0.05;
+  const htmlElement = (d: object) => {
+    const m = d as { label: string; year: number };
+    const el = document.createElement('div');
+    el.style.cssText = `
+      background: rgba(0,0,0,0.8);
+      border: 1px solid rgba(245, 158, 11, 0.5);
+      border-radius: 4px;
+      padding: 3px 8px;
+      color: #fbbf24;
+      font-size: 10px;
+      white-space: nowrap;
+      pointer-events: none;
+      transform: translate(-50%, -100%);
+      max-width: 180px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    `;
+    const yearStr = m.year < 0 ? `${Math.abs(m.year)} BC` : `${m.year} AD`;
+    el.textContent = `${yearStr}: ${m.label}`;
+    return el;
+  };
+
   return (
     <div className="w-full h-full bg-black">
       <GlobeGL
@@ -198,6 +260,12 @@ export default function Globe({
         arcDashGap={0.2}
         arcDashAnimateTime={2000}
         arcLabel={arcLabel}
+        // HTML elements (milestone labels)
+        htmlElementsData={milestoneElements}
+        htmlLat={htmlLat}
+        htmlLng={htmlLng}
+        htmlAltitude={htmlAltitude}
+        htmlElement={htmlElement}
         // Camera settings
         onZoom={handlePovChange}
         // Atmosphere

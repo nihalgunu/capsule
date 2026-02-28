@@ -75,7 +75,7 @@ export default function InterventionPanel({
   if (!isVisible) return null;
 
   return (
-    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/95 to-transparent pt-16 pb-6 px-6">
+    <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black via-black/95 to-transparent pt-8 pb-4 px-6 animate-slide-up">
       <div className="max-w-4xl mx-auto">
         {/* Region description */}
         {loadingContext ? (
@@ -84,7 +84,7 @@ export default function InterventionPanel({
           </div>
         ) : context ? (
           <div className="mb-4">
-            <p className="text-gray-300 text-sm leading-relaxed">
+            <p className="text-gray-300 text-sm leading-relaxed line-clamp-2">
               {context.description}
             </p>
           </div>
