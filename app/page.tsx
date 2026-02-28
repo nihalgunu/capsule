@@ -3,12 +3,11 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import Globe from '@/components/Globe';
 import YearCounter from '@/components/YearCounter';
-import InterventionPanel from '@/components/InterventionPanel';
 import CityDetail from '@/components/CityDetail';
 import NarrativePanel from '@/components/NarrativePanel';
 import GoalScreen from '@/components/GoalScreen';
 import { useGameStore } from '@/lib/store';
-import { City, InterventionResult, EPOCHS, getAngularDistance } from '@/lib/types';
+import { City, InterventionResult, EPOCHS } from '@/lib/types';
 
 export default function Home() {
   const {
@@ -17,14 +16,13 @@ export default function Home() {
     worldState,
     loading,
     selectedCity,
-    zoomedIn,
-    zoomLocation,
+    chosenCity,
     previousInterventions,
     gameResult,
     initWorld,
     submitIntervention,
     selectCity,
-    setZoomedIn,
+    setChosenCity,
     reset,
   } = useGameStore();
 
@@ -43,57 +41,43 @@ export default function Home() {
     }
   }, [initWorld, isInitialized]);
 
-  // Throttled zoom handler
-  const lastZoomRef = useRef(0);
-  const handleZoomChange = useCallback(
-    (altitude: number, location: { lat: number; lng: number }) => {
-      const now = Date.now();
-      if (now - lastZoomRef.current < 300) return;
-      lastZoomRef.current = now;
-      if (isAnimating) return;
+  // Auto-select chosen city panel for epochs 2-4
+  useEffect(() => {
+    if (chosenCity && currentEpoch >= 2 && currentEpoch <= 4 && interventionsRemaining > 0 && !isAnimating) {
+      // Find the chosen city in current world state (might have updated stats)
+      const updatedCity = worldState?.cities.find(c => c.id === chosenCity.id) || chosenCity;
+      selectCity(updatedCity);
+    }
+  }, [currentEpoch, chosenCity, interventionsRemaining, isAnimating]);
 
-      // Only handle zoom for epochs 2-4 (epoch 1 uses full-screen city view)
-      if (currentEpoch === 1 || currentEpoch === 5) return;
-
-      const isNowZoomed = altitude < 1.5;
-      if (isNowZoomed !== zoomedIn) {
-        setZoomedIn(isNowZoomed, isNowZoomed ? location : undefined);
-        if (isNowZoomed && worldState?.cities && !selectedCity) {
-          let nearest: City | null = null;
-          let nearestDist = Infinity;
-          for (const city of worldState.cities) {
-            const dist = getAngularDistance(location, { lat: city.lat, lng: city.lng });
-            if (dist < 15 && dist < nearestDist) {
-              nearest = city;
-              nearestDist = dist;
-            }
-          }
-          if (nearest) selectCity(nearest);
-        }
-      }
-    },
-    [zoomedIn, setZoomedIn, worldState?.cities, selectCity, selectedCity, isAnimating, currentEpoch]
-  );
-
-  // Handle city click
+  // Handle city click (epoch 1 only)
   const handleCityClick = useCallback((city: City) => {
-    selectCity(city);
-  }, [selectCity]);
+    if (currentEpoch === 1) {
+      selectCity(city);
+    }
+  }, [selectCity, currentEpoch]);
 
-  // Handle intervention (works for both epoch 1 full-screen and epochs 2-4 panel)
+  // Handle intervention — works for all epochs
   const handleIntervention = useCallback(
-    (description: string, lat: number, lng: number) => {
+    (description: string) => {
+      if (!chosenCity && !selectedCity) return;
+
+      const city = chosenCity || selectedCity!;
       const epochConfig = EPOCHS[currentEpoch - 1];
 
-      // Start animation immediately
-      setRippleCenter({ lat, lng });
+      // Epoch 1: lock in the city
+      if (currentEpoch === 1 && !chosenCity && selectedCity) {
+        setChosenCity(selectedCity);
+      }
+
+      // Start ripple animation
+      setRippleCenter({ lat: city.lat, lng: city.lng });
       setRippleProgress(0);
       setIsAnimating(true);
       setTargetYear(epochConfig.endYear);
 
-      // Close panels
+      // Close panel
       selectCity(null);
-      setZoomedIn(false);
 
       // Ripple animation
       const duration = 5000;
@@ -113,11 +97,11 @@ export default function Home() {
       requestAnimationFrame(animateRipple);
 
       // Fire API
-      submitIntervention(description, lat, lng).then((result) => {
+      submitIntervention(description).then((result) => {
         if (result) setLastResult(result);
       });
     },
-    [currentEpoch, submitIntervention, selectCity, setZoomedIn]
+    [currentEpoch, submitIntervention, selectCity, chosenCity, selectedCity, setChosenCity]
   );
 
   // Handle reset
@@ -129,7 +113,7 @@ export default function Home() {
 
   // Show goal screen for epoch 5
   if (currentEpoch === 5) {
-    return <GoalScreen result={gameResult} onPlayAgain={handleReset} />;
+    return <GoalScreen result={gameResult} chosenCity={chosenCity} onPlayAgain={handleReset} />;
   }
 
   // Wait for world state
@@ -139,12 +123,11 @@ export default function Home() {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-black">
-      {/* Globe — full viewport */}
+      {/* Globe */}
       <div className="absolute inset-0">
         <Globe
           selectedCity={selectedCity}
           onCityClick={handleCityClick}
-          onZoomChange={handleZoomChange}
           rippleCenter={rippleCenter}
           rippleProgress={rippleProgress}
           milestones={lastResult?.milestones}
@@ -173,7 +156,7 @@ export default function Home() {
         </div>
       </header>
 
-      {/* World TLDR + previous decisions — always visible */}
+      {/* World TLDR + previous decisions */}
       {worldState.narrative && (
         <NarrativePanel
           narrative={worldState.narrative}
@@ -182,33 +165,20 @@ export default function Home() {
         />
       )}
 
-      {/* City detail — full-screen (epoch 1) or side panel (epochs 2-4) */}
+      {/* City detail — full-screen (epoch 1) or side panel with embedded input (epochs 2-4) */}
       <CityDetail
         city={selectedCity}
         worldState={worldState}
         onClose={() => selectCity(null)}
-        onCitySelect={(city) => selectCity(city)}
-        onSubmitIntervention={currentEpoch === 1 ? handleIntervention : undefined}
+        onSubmitIntervention={handleIntervention}
       />
 
-      {/* Intervention panel — only epochs 2-4, only when zoomed in */}
-      {currentEpoch >= 2 && currentEpoch <= 4 && (
-        <InterventionPanel
-          isVisible={zoomedIn && interventionsRemaining > 0}
-          isLoading={loading}
-          zoomLocation={zoomLocation}
-          worldState={worldState}
-          onSubmit={handleIntervention}
-          onClose={() => setZoomedIn(false)}
-        />
-      )}
-
       {/* Instructions hint */}
-      {!selectedCity && !zoomedIn && interventionsRemaining > 0 && !isAnimating && (
+      {!selectedCity && interventionsRemaining > 0 && !isAnimating && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-gray-500 text-sm animate-pulse">
           {currentEpoch === 1
-            ? 'Click a city to begin'
-            : 'Scroll to zoom in on a region to make changes'
+            ? 'Click a city to begin your journey'
+            : `Your city: ${chosenCity?.name || '...'} — opening panel...`
           }
         </div>
       )}

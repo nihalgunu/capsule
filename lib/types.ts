@@ -21,6 +21,8 @@ export interface City {
   techLevel: number;       // 1-10
   civilization: string;
   description: string;
+  pros?: string;           // Strategic advantages (epoch 1 selection)
+  cons?: string;           // Challenges (epoch 1 selection)
   causalNote?: string;     // "Because you did X..."
   change?: "brighter" | "dimmer" | "new" | "gone" | "unchanged";
 }
@@ -95,8 +97,7 @@ export interface GameState {
   previousInterventions: Intervention[];
   loading: boolean;
   selectedCity: City | null;
-  zoomedIn: boolean;
-  zoomLocation: { lat: number; lng: number } | null;
+  chosenCity: City | null;           // Locked in during epoch 1, persists all game
   gameResult: GameResult | null;
 }
 

@@ -5,7 +5,6 @@ import dynamic from 'next/dynamic';
 import { City, TradeRoute, Milestone, getCityColor, getAngularDistance } from '@/lib/types';
 import { useGameStore } from '@/lib/store';
 
-// Dynamically import react-globe.gl to avoid SSR issues
 const GlobeGL = dynamic(() => import('react-globe.gl'), {
   ssr: false,
   loading: () => (
@@ -18,39 +17,33 @@ const GlobeGL = dynamic(() => import('react-globe.gl'), {
 interface GlobeProps {
   selectedCity?: City | null;
   onCityClick?: (city: City) => void;
-  onZoomChange?: (altitude: number, location: { lat: number; lng: number }) => void;
   rippleCenter?: { lat: number; lng: number } | null;
-  rippleProgress?: number; // 0 to 1
+  rippleProgress?: number;
   milestones?: Milestone[];
 }
 
 export default function Globe({
   selectedCity,
   onCityClick,
-  onZoomChange,
   rippleCenter,
   rippleProgress = 1,
   milestones = [],
 }: GlobeProps) {
   const globeRef = useRef<any>(null);
-  const { worldState, previousInterventions } = useGameStore();
+  const { worldState, currentEpoch, chosenCity } = useGameStore();
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
 
   // Handle window resize
   useEffect(() => {
     const handleResize = () => {
-      setDimensions({
-        width: window.innerWidth,
-        height: window.innerHeight,
-      });
+      setDimensions({ width: window.innerWidth, height: window.innerHeight });
     };
-
     handleResize();
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Auto-rotate the globe slowly
+  // Auto-rotate
   useEffect(() => {
     if (globeRef.current) {
       const controls = globeRef.current.controls();
@@ -61,8 +54,7 @@ export default function Globe({
     }
   }, []);
 
-  // Fly to selected city — altitude 2.0 stays above the zoom threshold (< 1.5)
-  // so it doesn't trigger intervention panel or region-context spam
+  // Fly to selected city (epoch 1 browsing)
   useEffect(() => {
     if (selectedCity && globeRef.current) {
       globeRef.current.pointOfView(
@@ -72,37 +64,29 @@ export default function Globe({
     }
   }, [selectedCity?.id]);
 
-  // Handle POV changes (zoom detection)
-  const handlePovChange = useCallback(
-    (pov: { lat: number; lng: number; altitude: number }) => {
-      if (onZoomChange) {
-        onZoomChange(pov.altitude, { lat: pov.lat, lng: pov.lng });
-      }
-    },
-    [onZoomChange]
-  );
+  // Auto-fly to chosen city on epoch transitions (epochs 2-4)
+  useEffect(() => {
+    if (chosenCity && currentEpoch >= 2 && currentEpoch <= 4 && globeRef.current) {
+      globeRef.current.pointOfView(
+        { lat: chosenCity.lat, lng: chosenCity.lng, altitude: 1.8 },
+        1500
+      );
+    }
+  }, [currentEpoch, chosenCity?.id]);
 
-  // Filter cities based on ripple progress with wave-band effect
+  // Ripple-based city visibility
   const getVisibleCities = useCallback(() => {
     if (!worldState?.cities) return [];
+    if (!rippleCenter || rippleProgress >= 1) return worldState.cities;
 
-    // If no ripple animation, show all cities
-    if (!rippleCenter || rippleProgress >= 1) {
-      return worldState.cities;
-    }
-
-    // Ripple radius in degrees (180 = full globe)
     const rippleRadius = rippleProgress * 180;
-    const bandWidth = 15; // degrees width of the wave-band
+    const bandWidth = 15;
 
     return worldState.cities.map((city) => {
       const distance = getAngularDistance(rippleCenter, { lat: city.lat, lng: city.lng });
-
       if (distance <= rippleRadius) {
-        // City is behind the ripple front — apply wave-band scaling
         const distFromFront = rippleRadius - distance;
         if (distFromFront < bandWidth) {
-          // In the wave-band: scale cities based on change
           const change = city.change;
           if (change === 'brighter' || change === 'new') {
             return { ...city, brightness: Math.min(city.brightness * 1.8, 1) };
@@ -110,27 +94,18 @@ export default function Globe({
             return { ...city, brightness: city.brightness * 0.4 };
           }
         }
-        return city; // Show new state normally
+        return city;
       }
-
-      // Outside ripple — show dimmed
-      return {
-        ...city,
-        brightness: city.brightness * 0.3,
-      };
+      return { ...city, brightness: city.brightness * 0.3 };
     });
   }, [worldState?.cities, rippleCenter, rippleProgress]);
 
-  // Get city point data
   const cityPoints = getVisibleCities();
-
-  // Get arc data for trade routes
   const arcsData = worldState?.tradeRoutes || [];
 
   // Milestones visible based on ripple progress
   const visibleMilestones = useMemo(() => {
     if (!rippleCenter || rippleProgress >= 1 || milestones.length === 0) return [];
-
     const rippleRadius = rippleProgress * 180;
     return milestones.filter((m) => {
       const dist = getAngularDistance(rippleCenter, { lat: m.lat, lng: m.lng });
@@ -138,29 +113,29 @@ export default function Globe({
     });
   }, [milestones, rippleCenter, rippleProgress]);
 
-  // HTML elements for milestone labels
   const milestoneElements = useMemo(() => {
     return visibleMilestones.map((m, i) => ({
-      lat: m.lat,
-      lng: m.lng,
-      label: m.event,
-      year: m.year,
-      id: `milestone-${i}`,
+      lat: m.lat, lng: m.lng, label: m.event, year: m.year, id: `milestone-${i}`,
     }));
   }, [visibleMilestones]);
 
-  // Point layer callbacks (cast to object for react-globe.gl typing)
+  // Point layer callbacks
   const pointLat = (d: object) => (d as City).lat;
   const pointLng = (d: object) => (d as City).lng;
   const pointAltitude = (d: object) => (d as City).brightness * 0.02;
   const pointRadius = (d: object) => {
     const city = d as City;
     const base = Math.sqrt(city.population) * 0.002 + 0.3;
-    return selectedCity && city.id === selectedCity.id ? base * 2.5 : base;
+    // Highlight chosen city in epochs 2-4, or selected city in epoch 1
+    const isHighlighted = (chosenCity && currentEpoch >= 2 && city.id === chosenCity.id)
+      || (selectedCity && city.id === selectedCity.id);
+    return isHighlighted ? base * 2.5 : base;
   };
   const pointColor = (d: object) => {
     const city = d as City;
-    return selectedCity && city.id === selectedCity.id ? '#ffffff' : getCityColor(city.techLevel);
+    const isHighlighted = (chosenCity && currentEpoch >= 2 && city.id === chosenCity.id)
+      || (selectedCity && city.id === selectedCity.id);
+    return isHighlighted ? '#ffffff' : getCityColor(city.techLevel);
   };
   const pointLabel = (d: object) => {
     const city = d as City;
@@ -190,7 +165,7 @@ export default function Globe({
   `;
   };
 
-  // Arc layer callbacks (cast to object for react-globe.gl typing)
+  // Arc layer callbacks
   const arcStartLat = (d: object) => (d as TradeRoute).from.lat;
   const arcStartLng = (d: object) => (d as TradeRoute).from.lng;
   const arcEndLat = (d: object) => (d as TradeRoute).to.lat;
@@ -217,15 +192,14 @@ export default function Globe({
   `;
   };
 
-  // Handle city click
+  // City click — only epoch 1
   const handlePointClick = (point: object) => {
+    if (currentEpoch !== 1) return; // Locked after epoch 1
     const city = point as City;
-    if (onCityClick) {
-      onCityClick(city);
-    }
+    if (onCityClick) onCityClick(city);
   };
 
-  // HTML elements layer callbacks for milestones
+  // Milestone HTML elements
   const htmlLat = (d: object) => (d as { lat: number }).lat;
   const htmlLng = (d: object) => (d as { lng: number }).lng;
   const htmlAltitude = () => 0.05;
@@ -251,11 +225,12 @@ export default function Globe({
     return el;
   };
 
-  // Rings data for selected city highlight
+  // Rings for highlighted city
+  const highlightedCity = currentEpoch >= 2 ? chosenCity : selectedCity;
   const selectedRings = useMemo(() => {
-    if (!selectedCity) return [];
-    return [{ lat: selectedCity.lat, lng: selectedCity.lng }];
-  }, [selectedCity?.id]);
+    if (!highlightedCity) return [];
+    return [{ lat: highlightedCity.lat, lng: highlightedCity.lng }];
+  }, [highlightedCity?.id]);
 
   return (
     <div className="w-full h-full bg-black">
@@ -265,7 +240,6 @@ export default function Globe({
         height={dimensions.height}
         globeImageUrl="//unpkg.com/three-globe/example/img/earth-night.jpg"
         backgroundImageUrl="//unpkg.com/three-globe/example/img/night-sky.png"
-        // Points (cities)
         pointsData={cityPoints}
         pointLat={pointLat}
         pointLng={pointLng}
@@ -274,7 +248,6 @@ export default function Globe({
         pointColor={pointColor}
         pointLabel={pointLabel}
         onPointClick={handlePointClick}
-        // Arcs (trade routes)
         arcsData={arcsData}
         arcStartLat={arcStartLat}
         arcStartLng={arcStartLng}
@@ -286,13 +259,11 @@ export default function Globe({
         arcDashGap={0.2}
         arcDashAnimateTime={2000}
         arcLabel={arcLabel}
-        // HTML elements (milestone labels)
         htmlElementsData={milestoneElements}
         htmlLat={htmlLat}
         htmlLng={htmlLng}
         htmlAltitude={htmlAltitude}
         htmlElement={htmlElement}
-        // Rings (selected city highlight)
         ringsData={selectedRings}
         ringLat={(d: object) => (d as any).lat}
         ringLng={(d: object) => (d as any).lng}
@@ -300,9 +271,6 @@ export default function Globe({
         ringMaxRadius={3}
         ringPropagationSpeed={2}
         ringRepeatPeriod={800}
-        // Camera settings
-        onZoom={handlePovChange}
-        // Atmosphere
         atmosphereColor="#4a3000"
         atmosphereAltitude={0.15}
       />

@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
 
-  const { intervention, lat, lng, currentState, previousInterventions, startYear, endYear, useMock = false } = body;
+  const { intervention, lat, lng, currentState, previousInterventions, chosenCity, startYear, endYear, useMock = false } = body;
 
   if (!intervention || lat === undefined || lng === undefined || !currentState) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const result = await processIntervention(intervention, lat, lng, currentState, previousInterventions || [], startYear, endYear);
+    const result = await processIntervention(intervention, lat, lng, currentState, previousInterventions || [], startYear, endYear, chosenCity);
     return NextResponse.json(result);
   } catch (error) {
     console.error('Error in intervene API:', error);

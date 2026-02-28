@@ -1,41 +1,32 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
-import { City, WorldState, getCityColor, getAngularDistance } from '@/lib/types';
+import { useState, useCallback } from 'react';
+import { City, WorldState, getCityColor } from '@/lib/types';
 import { useGameStore } from '@/lib/store';
 
 interface CityDetailProps {
   city: City | null;
   worldState: WorldState | null;
   onClose: () => void;
-  onCitySelect: (city: City) => void;
-  onSubmitIntervention?: (description: string, lat: number, lng: number) => void;
+  onSubmitIntervention: (description: string) => void;
 }
 
-export default function CityDetail({ city, worldState, onClose, onCitySelect, onSubmitIntervention }: CityDetailProps) {
+export default function CityDetail({ city, worldState, onClose, onSubmitIntervention }: CityDetailProps) {
   const [inputText, setInputText] = useState('');
   const currentEpoch = useGameStore(s => s.currentEpoch);
   const loading = useGameStore(s => s.loading);
-
-  const nearbyCities = useMemo(() => {
-    if (!city || !worldState?.cities) return [];
-    return worldState.cities
-      .filter(c => c.id !== city.id)
-      .map(c => ({ city: c, distance: getAngularDistance({ lat: city.lat, lng: city.lng }, { lat: c.lat, lng: c.lng }) }))
-      .sort((a, b) => a.distance - b.distance)
-      .slice(0, 3);
-  }, [city, worldState?.cities]);
+  const chosenCity = useGameStore(s => s.chosenCity);
 
   const handleSubmit = useCallback(() => {
-    if (inputText.trim() && city && onSubmitIntervention && !loading) {
-      onSubmitIntervention(inputText.trim(), city.lat, city.lng);
+    if (inputText.trim() && !loading) {
+      onSubmitIntervention(inputText.trim());
       setInputText('');
     }
-  }, [inputText, city, onSubmitIntervention, loading]);
+  }, [inputText, onSubmitIntervention, loading]);
 
   if (!city) return null;
 
-  // === EPOCH 1: Full-screen immersive view with preset image ===
+  // === EPOCH 1: Full-screen immersive view with preset image + pros/cons ===
   if (currentEpoch === 1) {
     return (
       <div className="fixed inset-0 z-40 bg-black">
@@ -46,10 +37,10 @@ export default function CityDetail({ city, worldState, onClose, onCitySelect, on
           className="absolute inset-0 w-full h-full object-cover"
         />
 
-        {/* Dark gradient overlay for text readability */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-black/20" />
+        {/* Dark gradient overlay */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-black/20" />
 
-        {/* Close / back button */}
+        {/* Back button */}
         <button
           onClick={onClose}
           className="absolute top-6 left-6 z-50 text-white/60 hover:text-white transition-colors flex items-center gap-2 text-sm"
@@ -65,16 +56,32 @@ export default function CityDetail({ city, worldState, onClose, onCitySelect, on
           <div className="max-w-2xl">
             <p className="text-amber-400/80 text-sm uppercase tracking-wider mb-1">{city.civilization}</p>
             <h2 className="text-4xl font-bold text-white mb-3 drop-shadow-lg">{city.name}</h2>
-            <p className="text-gray-200 text-lg mb-6 leading-relaxed max-w-xl">{city.description}</p>
+            <p className="text-gray-200 text-lg mb-4 leading-relaxed max-w-xl">{city.description}</p>
 
-            {/* Intervention input — embedded in the immersive view */}
+            {/* Pros & Cons */}
+            <div className="flex gap-4 mb-6 max-w-xl">
+              {city.pros && (
+                <div className="flex-1 pl-3 border-l-2 border-green-500/70">
+                  <p className="text-green-400 text-xs uppercase tracking-wider mb-1 font-semibold">Advantages</p>
+                  <p className="text-green-200/90 text-sm leading-relaxed">{city.pros}</p>
+                </div>
+              )}
+              {city.cons && (
+                <div className="flex-1 pl-3 border-l-2 border-red-500/70">
+                  <p className="text-red-400 text-xs uppercase tracking-wider mb-1 font-semibold">Challenges</p>
+                  <p className="text-red-200/90 text-sm leading-relaxed">{city.cons}</p>
+                </div>
+              )}
+            </div>
+
+            {/* Intervention input */}
             <div className="flex gap-3">
               <input
                 type="text"
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-                placeholder="What will you change here?"
+                placeholder="What will you change here? (This locks in your city)"
                 disabled={loading}
                 className="flex-1 px-5 py-4 bg-black/50 border border-amber-700/40 rounded-lg
                          text-white text-lg placeholder-gray-400 focus:outline-none focus:border-amber-500
@@ -95,7 +102,7 @@ export default function CityDetail({ city, worldState, onClose, onCitySelect, on
     );
   }
 
-  // === EPOCHS 2-4: Right-side text panel (no image) ===
+  // === EPOCHS 2-4: Right-side text panel with embedded intervention input ===
   const changeColor = city.change === 'brighter' || city.change === 'new'
     ? 'border-green-500/60'
     : city.change === 'dimmer' || city.change === 'gone'
@@ -103,13 +110,13 @@ export default function CityDetail({ city, worldState, onClose, onCitySelect, on
     : 'border-amber-700/50';
 
   return (
-    <div className={`absolute top-20 right-6 w-80 bg-black/90 border ${changeColor} rounded-xl overflow-hidden shadow-2xl backdrop-blur-sm animate-slide-in z-20`}>
+    <div className={`absolute top-20 right-6 w-96 bg-black/90 border ${changeColor} rounded-xl overflow-hidden shadow-2xl backdrop-blur-sm animate-slide-in z-20`}>
       {/* Header */}
       <div className="p-4 pb-2">
         <div className="flex items-start justify-between">
           <div>
             <p className="text-amber-400/70 text-xs uppercase tracking-wider">{city.civilization}</p>
-            <h3 className="text-lg font-bold text-white">{city.name}</h3>
+            <h3 className="text-lg font-bold text-white">Your City: {city.name}</h3>
           </div>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-300 transition-colors p-1">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -134,10 +141,10 @@ export default function CityDetail({ city, worldState, onClose, onCitySelect, on
       </div>
 
       <div className="px-4 pb-4 space-y-3">
-        {/* TLDR description */}
+        {/* Description */}
         <p className="text-gray-300 text-sm leading-relaxed">{city.description}</p>
 
-        {/* Causal note — references previous decision */}
+        {/* Causal note */}
         {city.causalNote && (
           <div className="pl-3 border-l-2 border-amber-500/70">
             <p className="text-amber-400/90 text-sm italic">{city.causalNote}</p>
@@ -155,22 +162,33 @@ export default function CityDetail({ city, worldState, onClose, onCitySelect, on
           ))}
         </div>
 
-        {/* Nearby cities */}
-        {nearbyCities.length > 0 && (
-          <div className="pt-2 border-t border-gray-800/50 flex flex-wrap gap-1.5">
-            {nearbyCities.map(({ city: nearby }) => (
-              <button
-                key={nearby.id}
-                onClick={() => onCitySelect(nearby)}
-                className="px-2.5 py-1 bg-gray-800/80 hover:bg-amber-900/40 border border-gray-700/50
-                         rounded-full text-xs text-gray-300 hover:text-amber-300 transition-all flex items-center gap-1"
-              >
-                <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: getCityColor(nearby.techLevel) }} />
-                {nearby.name}
-              </button>
-            ))}
+        {/* Embedded intervention input */}
+        <div className="pt-3 border-t border-gray-800/50">
+          <p className="text-amber-400/80 text-xs uppercase tracking-wider mb-2 font-semibold">
+            What changes next?
+          </p>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+              placeholder="Describe your intervention..."
+              disabled={loading}
+              className="flex-1 px-3 py-2.5 bg-black/60 border border-amber-700/40 rounded-lg
+                       text-white text-sm placeholder-gray-500 focus:outline-none focus:border-amber-500
+                       disabled:opacity-50"
+            />
+            <button
+              onClick={handleSubmit}
+              disabled={!inputText.trim() || loading}
+              className="px-4 py-2.5 bg-amber-600 hover:bg-amber-500 rounded-lg text-black font-medium text-sm
+                       transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+            >
+              {loading ? 'Changing...' : 'Change'}
+            </button>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

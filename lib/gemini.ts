@@ -1,5 +1,5 @@
 import { GoogleGenAI } from '@google/genai';
-import { WorldState, InterventionResult, RegionContext, Intervention, GOAL_STATE } from './types';
+import { WorldState, InterventionResult, Intervention, GOAL_STATE } from './types';
 
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
@@ -41,17 +41,22 @@ export async function processIntervention(
   currentState: WorldState,
   previousInterventions: Intervention[],
   startYear: number,
-  endYear: number
+  endYear: number,
+  chosenCity?: { name: string; civilization: string }
 ): Promise<InterventionResult> {
   const startDisplay = startYear < 0 ? `${Math.abs(startYear)} BC` : `${startYear} AD`;
   const endDisplay = endYear < 0 ? `${Math.abs(endYear)} BC` : `${endYear} AD`;
 
-  // Build previous decisions summary for causal references
   const prevDecisions = previousInterventions
     .map(i => `"${i.description}" at ${i.year < 0 ? Math.abs(i.year) + ' BC' : i.year + ' AD'}`)
     .join('; ');
 
+  const cityContext = chosenCity
+    ? `Player chose ${chosenCity.name} (${chosenCity.civilization}) as their ONE city for the entire game. All interventions happen here. Focus on how THIS city evolves.`
+    : '';
+
   const prompt = `Alternate history: ${startDisplay} to ${endDisplay}. Player goal: ${GOAL_STATE}.
+${cityContext}
 
 STATE: ${JSON.stringify(currentState)}
 
@@ -60,10 +65,10 @@ PREVIOUS DECISIONS: ${prevDecisions || 'None'}
 NEW INTERVENTION at (${lat.toFixed(1)},${lng.toFixed(1)}): "${intervention}"
 
 RULES:
-- Every city causalNote MUST reference the exact previous intervention that caused the change: "Because you [intervention text], [effect]."
-- worldNarrative (2-3 sentences) must reference how previous decisions shaped this world AND hint at progress/setbacks toward interstellar travel
-- Keep descriptions to 1 sentence max per city
-- Return 10-15 cities (existing + 1-2 new ones)
+- Every city causalNote MUST reference the exact previous intervention: "Because you [intervention text], [effect]."
+- worldNarrative (2-3 sentences) must reference previous decisions AND hint at progress toward interstellar travel
+- Keep descriptions to 1 sentence per city
+- Return 10-15 cities (existing + 1-2 new)
 - Each city needs change: "brighter"|"dimmer"|"new"|"gone"|"unchanged"
 
 JSON: {milestones:[{year,lat,lng,event,causalLink}],citiesAffected:[{id,name,lat,lng,population,brightness,techLevel,civilization,description,causalNote,change}],tradeRoutes:[{id,from:{lat,lng,city},to:{lat,lng,city},volume,description}],regions:[{id,civilization,color,center:{lat,lng},radius}],worldNarrative:"",narrationScript:"3 sentences",mostSurprising:{lat,lng,description,causalChain:["..."]}}`;
@@ -81,40 +86,22 @@ JSON: {milestones:[{year,lat,lng,event,causalLink}],citiesAffected:[{id,name,lat
   return JSON.parse(response.text || '') as InterventionResult;
 }
 
-// Get region context when player zooms in (epochs 2-4)
-export async function getRegionContext(
-  lat: number,
-  lng: number,
-  currentState: WorldState
-): Promise<RegionContext> {
-  const yearDisplay = currentState.year < 0 ? `${Math.abs(currentState.year)} BC` : `${currentState.year} AD`;
-
-  const prompt = `World at ${yearDisplay}. Player goal: ${GOAL_STATE}.
-State: ${JSON.stringify(currentState)}
-Player zoomed to (${lat.toFixed(1)}, ${lng.toFixed(1)}).
-
-Return JSON: {"description":"2 sentences about this region","suggestions":[{"text":"intervention","reasoning":"why interesting"}]} (3-4 suggestions)`;
-
-  const response = await genAI.models.generateContent({
-    model: MODELS.reasoning,
-    contents: prompt,
-    config: { responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 1024 } },
-  });
-
-  return JSON.parse(response.text || '') as RegionContext;
-}
-
 // Score the player's 4 decisions against the goal
 export async function generateScore(
   interventions: Intervention[],
   worldState: WorldState,
-  goal: string
+  goal: string,
+  chosenCity?: { name: string; civilization: string } | null
 ): Promise<{ score: number; summary: string; causalChain: string[] }> {
   const decisions = interventions.map((i, idx) =>
     `${idx + 1}. At ${i.year < 0 ? Math.abs(i.year) + ' BC' : i.year + ' AD'}: "${i.description}"`
   ).join('\n');
 
-  const prompt = `You are scoring an alternate history game. The player made 4 decisions trying to achieve: "${goal}"
+  const cityLine = chosenCity
+    ? `The player started in ${chosenCity.name} (${chosenCity.civilization}) at 10000 BC and guided this ONE city across 4 epochs.`
+    : '';
+
+  const prompt = `You are scoring an alternate history game. ${cityLine} The player made 4 decisions trying to achieve: "${goal}"
 
 Their decisions:
 ${decisions}
@@ -134,8 +121,9 @@ Return JSON: {"score":number,"summary":"3-4 sentences analyzing how their decisi
 }
 
 // Generate ONE final image of Earth at the goal year
-export async function generateFinalImage(worldState: WorldState, goal: string): Promise<string> {
-  const prompt = `Generate a cinematic wide-angle view of Earth from low orbit at year ${worldState.year} AD in an alternate timeline. The goal was: ${goal}. Show whether humanity achieved it — spacecraft, orbital stations, or a world that fell short. Dark space background, Earth glowing below. Painterly, dramatic, 16:9. No text.`;
+export async function generateFinalImage(worldState: WorldState, goal: string, chosenCity?: { name: string; civilization: string } | null): Promise<string> {
+  const cityRef = chosenCity ? ` Focus on the region around ${chosenCity.name}, showing it as a futuristic hub.` : '';
+  const prompt = `Generate a cinematic wide-angle view of Earth from low orbit at year ${worldState.year} AD in an alternate timeline. The goal was: ${goal}.${cityRef} Show whether humanity achieved it — spacecraft, orbital stations, or a world that fell short. Dark space background, Earth glowing below. Painterly, dramatic, 16:9. No text.`;
 
   const response = await genAI.models.generateContent({
     model: MODELS.image,

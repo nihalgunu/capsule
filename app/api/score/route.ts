@@ -10,10 +10,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
 
-  const { interventions, worldState, goal } = body as {
+  const { interventions, worldState, goal, chosenCity } = body as {
     interventions: Intervention[];
     worldState: WorldState;
     goal: string;
+    chosenCity?: { name: string; civilization: string } | null;
   };
 
   if (!interventions || !worldState || !goal) {
@@ -22,8 +23,8 @@ export async function POST(request: NextRequest) {
 
   // Run scoring and image generation in parallel
   const [scoreResult, imageResult] = await Promise.allSettled([
-    generateScore(interventions, worldState, goal),
-    generateFinalImage(worldState, goal),
+    generateScore(interventions, worldState, goal, chosenCity),
+    generateFinalImage(worldState, goal, chosenCity),
   ]);
 
   const score = scoreResult.status === 'fulfilled' ? scoreResult.value : {

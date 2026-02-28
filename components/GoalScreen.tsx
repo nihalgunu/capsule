@@ -1,13 +1,14 @@
 'use client';
 
-import { GameResult, GOAL_STATE } from '@/lib/types';
+import { City, GameResult, GOAL_STATE } from '@/lib/types';
 
 interface GoalScreenProps {
   result: GameResult | null;
+  chosenCity: City | null;
   onPlayAgain: () => void;
 }
 
-export default function GoalScreen({ result, onPlayAgain }: GoalScreenProps) {
+export default function GoalScreen({ result, chosenCity, onPlayAgain }: GoalScreenProps) {
   const scoreColor = result
     ? result.score >= 70 ? 'text-green-400' : result.score >= 40 ? 'text-amber-400' : 'text-red-400'
     : 'text-gray-500';
@@ -18,7 +19,7 @@ export default function GoalScreen({ result, onPlayAgain }: GoalScreenProps) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black flex items-center justify-center">
-      {/* Background image if available */}
+      {/* AI-generated background image */}
       {result?.finalImageBase64 && (
         <>
           <img
@@ -31,9 +32,21 @@ export default function GoalScreen({ result, onPlayAgain }: GoalScreenProps) {
       )}
 
       <div className="relative z-10 text-center max-w-xl px-8">
+        {/* City journey header */}
+        {chosenCity && (
+          <p className="text-gray-400 text-sm mb-1">
+            Your journey began in
+          </p>
+        )}
+        {chosenCity && (
+          <h1 className="text-3xl font-bold text-white mb-6 drop-shadow-lg">
+            {chosenCity.name}
+          </h1>
+        )}
+
         {/* Goal */}
         <p className="text-amber-400/60 text-sm uppercase tracking-widest mb-2">Goal</p>
-        <h2 className="text-2xl font-bold text-amber-400 mb-8">{GOAL_STATE}</h2>
+        <h2 className="text-xl font-bold text-amber-400 mb-8">{GOAL_STATE}</h2>
 
         {/* Score */}
         {result ? (
@@ -62,7 +75,6 @@ export default function GoalScreen({ result, onPlayAgain }: GoalScreenProps) {
             )}
           </>
         ) : (
-          /* Loading state */
           <div className="mb-8">
             <div className="inline-block border border-gray-700/30 rounded-2xl px-12 py-8 backdrop-blur-sm bg-black/40">
               <p className="text-gray-400 text-sm mb-4">Analyzing your timeline...</p>
