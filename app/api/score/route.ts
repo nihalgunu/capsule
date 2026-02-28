@@ -10,15 +10,37 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
   }
 
-  const { interventions, worldState, goal, chosenCity } = body as {
+  const { interventions, worldState, goal, chosenCity, skipImage } = body as {
     interventions: Intervention[];
     worldState: WorldState;
     goal: string;
     chosenCity?: { name: string; civilization: string } | null;
+    skipImage?: boolean;
   };
 
   if (!interventions || !worldState || !goal) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+  }
+
+  // If image already generated early, only run scoring
+  if (skipImage) {
+    try {
+      const score = await generateScore(interventions, worldState, goal, chosenCity);
+      const result: GameResult = {
+        score: score.score,
+        summary: score.summary,
+        causalChain: score.causalChain,
+        finalImageBase64: null, // client has it already
+      };
+      return NextResponse.json(result);
+    } catch {
+      return NextResponse.json({
+        score: 50,
+        summary: "Your decisions shaped history in unexpected ways.",
+        causalChain: interventions.map(i => i.description),
+        finalImageBase64: null,
+      });
+    }
   }
 
   // Run scoring and image generation in parallel

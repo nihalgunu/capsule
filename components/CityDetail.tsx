@@ -1,21 +1,35 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { City, WorldState, getCityColor } from '@/lib/types';
+import { useState, useCallback, useMemo } from 'react';
+import { City, WorldState } from '@/lib/types';
 import { useGameStore } from '@/lib/store';
 
 interface CityDetailProps {
   city: City | null;
   worldState: WorldState | null;
   onClose: () => void;
+  onCitySelect: (city: City) => void;
   onSubmitIntervention: (description: string) => void;
 }
 
-export default function CityDetail({ city, worldState, onClose, onSubmitIntervention }: CityDetailProps) {
+export default function CityDetail({ city, worldState, onClose, onCitySelect, onSubmitIntervention }: CityDetailProps) {
   const [inputText, setInputText] = useState('');
   const currentEpoch = useGameStore(s => s.currentEpoch);
   const loading = useGameStore(s => s.loading);
-  const chosenCity = useGameStore(s => s.chosenCity);
+  const interventionsRemaining = useGameStore(s => s.interventionsRemaining);
+
+  // All cities for epoch 1 navigation
+  const allCities = useMemo(() => worldState?.cities || [], [worldState?.cities]);
+  const currentIndex = useMemo(() => {
+    if (!city) return -1;
+    return allCities.findIndex(c => c.id === city.id);
+  }, [city, allCities]);
+
+  const goToCity = useCallback((direction: 1 | -1) => {
+    if (allCities.length === 0) return;
+    const nextIndex = (currentIndex + direction + allCities.length) % allCities.length;
+    onCitySelect(allCities[nextIndex]);
+  }, [currentIndex, allCities, onCitySelect]);
 
   const handleSubmit = useCallback(() => {
     if (inputText.trim() && !loading) {
@@ -26,7 +40,7 @@ export default function CityDetail({ city, worldState, onClose, onSubmitInterven
 
   if (!city) return null;
 
-  // === EPOCH 1: Full-screen immersive view with preset image + pros/cons ===
+  // === EPOCH 1: Full-screen immersive view with pros/cons + next/prev arrows ===
   if (currentEpoch === 1) {
     return (
       <div className="fixed inset-0 z-40 bg-black">
@@ -36,8 +50,6 @@ export default function CityDetail({ city, worldState, onClose, onSubmitInterven
           alt={city.name}
           className="absolute inset-0 w-full h-full object-cover"
         />
-
-        {/* Dark gradient overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-black/20" />
 
         {/* Back button */}
@@ -51,7 +63,34 @@ export default function CityDetail({ city, worldState, onClose, onSubmitInterven
           Back to globe
         </button>
 
-        {/* City info overlaid at bottom */}
+        {/* City counter */}
+        <div className="absolute top-6 right-6 z-50 text-white/50 text-sm">
+          {currentIndex + 1} / {allCities.length}
+        </div>
+
+        {/* Previous arrow */}
+        <button
+          onClick={() => goToCity(-1)}
+          className="absolute left-6 top-1/2 -translate-y-1/2 z-50 w-12 h-12 flex items-center justify-center
+                   bg-black/40 hover:bg-black/70 border border-white/20 rounded-full text-white/70 hover:text-white transition-all"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+
+        {/* Next arrow */}
+        <button
+          onClick={() => goToCity(1)}
+          className="absolute right-6 top-1/2 -translate-y-1/2 z-50 w-12 h-12 flex items-center justify-center
+                   bg-black/40 hover:bg-black/70 border border-white/20 rounded-full text-white/70 hover:text-white transition-all"
+        >
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+
+        {/* City info at bottom */}
         <div className="absolute bottom-0 left-0 right-0 p-8 z-50">
           <div className="max-w-2xl">
             <p className="text-amber-400/80 text-sm uppercase tracking-wider mb-1">{city.civilization}</p>
@@ -102,7 +141,7 @@ export default function CityDetail({ city, worldState, onClose, onSubmitInterven
     );
   }
 
-  // === EPOCHS 2-4: Right-side text panel with embedded intervention input ===
+  // === EPOCHS 2-4: Side panel with embedded input ===
   const changeColor = city.change === 'brighter' || city.change === 'new'
     ? 'border-green-500/60'
     : city.change === 'dimmer' || city.change === 'gone'
@@ -111,7 +150,6 @@ export default function CityDetail({ city, worldState, onClose, onSubmitInterven
 
   return (
     <div className={`absolute top-20 right-6 w-96 bg-black/90 border ${changeColor} rounded-xl overflow-hidden shadow-2xl backdrop-blur-sm animate-slide-in z-20`}>
-      {/* Header */}
       <div className="p-4 pb-2">
         <div className="flex items-start justify-between">
           <div>
@@ -125,7 +163,6 @@ export default function CityDetail({ city, worldState, onClose, onSubmitInterven
           </button>
         </div>
 
-        {/* Change badge */}
         {city.change && city.change !== 'unchanged' && (
           <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-medium ${
             city.change === 'brighter' || city.change === 'new'
@@ -141,54 +178,43 @@ export default function CityDetail({ city, worldState, onClose, onSubmitInterven
       </div>
 
       <div className="px-4 pb-4 space-y-3">
-        {/* Description */}
         <p className="text-gray-300 text-sm leading-relaxed">{city.description}</p>
 
-        {/* Causal note */}
         {city.causalNote && (
           <div className="pl-3 border-l-2 border-amber-500/70">
             <p className="text-amber-400/90 text-sm italic">{city.causalNote}</p>
           </div>
         )}
 
-        {/* Tech level dots */}
-        <div className="flex items-center gap-1">
-          {Array.from({ length: 10 }, (_, i) => (
-            <div
-              key={i}
-              className={`w-2 h-2 rounded-full ${i < city.techLevel ? '' : 'opacity-20'}`}
-              style={{ backgroundColor: i < city.techLevel ? getCityColor(city.techLevel) : '#333' }}
-            />
-          ))}
-        </div>
-
-        {/* Embedded intervention input */}
-        <div className="pt-3 border-t border-gray-800/50">
-          <p className="text-amber-400/80 text-xs uppercase tracking-wider mb-2 font-semibold">
-            What changes next?
-          </p>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={inputText}
-              onChange={(e) => setInputText(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
-              placeholder="Describe your intervention..."
-              disabled={loading}
-              className="flex-1 px-3 py-2.5 bg-black/60 border border-amber-700/40 rounded-lg
-                       text-white text-sm placeholder-gray-500 focus:outline-none focus:border-amber-500
-                       disabled:opacity-50"
-            />
-            <button
-              onClick={handleSubmit}
-              disabled={!inputText.trim() || loading}
-              className="px-4 py-2.5 bg-amber-600 hover:bg-amber-500 rounded-lg text-black font-medium text-sm
-                       transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
-            >
-              {loading ? 'Changing...' : 'Change'}
-            </button>
+        {/* Embedded intervention input — only if interventions remain */}
+        {interventionsRemaining > 0 && (
+          <div className="pt-3 border-t border-gray-800/50">
+            <p className="text-amber-400/80 text-xs uppercase tracking-wider mb-2 font-semibold">
+              What changes next?
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+                placeholder="Describe your intervention..."
+                disabled={loading}
+                className="flex-1 px-3 py-2.5 bg-black/60 border border-amber-700/40 rounded-lg
+                         text-white text-sm placeholder-gray-500 focus:outline-none focus:border-amber-500
+                         disabled:opacity-50"
+              />
+              <button
+                onClick={handleSubmit}
+                disabled={!inputText.trim() || loading}
+                className="px-4 py-2.5 bg-amber-600 hover:bg-amber-500 rounded-lg text-black font-medium text-sm
+                         transition-all disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+              >
+                {loading ? 'Changing...' : 'Change'}
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

@@ -19,19 +19,24 @@ export default function Home() {
     chosenCity,
     previousInterventions,
     gameResult,
+    earlyImageBase64,
     initWorld,
     submitIntervention,
     selectCity,
     setChosenCity,
+    advanceToResults,
     reset,
   } = useGameStore();
 
   const [isInitialized, setIsInitialized] = useState(false);
   const [rippleCenter, setRippleCenter] = useState<{ lat: number; lng: number } | null>(null);
   const [rippleProgress, setRippleProgress] = useState(1);
-  const [isAnimating, setIsAnimating] = useState(false);
-  const [targetYear, setTargetYear] = useState<number | null>(null);
   const [lastResult, setLastResult] = useState<InterventionResult | null>(null);
+
+  // Year counter animation state (tied to API response time)
+  const [yearAnimating, setYearAnimating] = useState(false);
+  const [targetYear, setTargetYear] = useState<number | undefined>(undefined);
+  const [apiResolved, setApiResolved] = useState(false);
 
   // Initialize on mount
   useEffect(() => {
@@ -43,12 +48,11 @@ export default function Home() {
 
   // Auto-select chosen city panel for epochs 2-4
   useEffect(() => {
-    if (chosenCity && currentEpoch >= 2 && currentEpoch <= 4 && interventionsRemaining > 0 && !isAnimating) {
-      // Find the chosen city in current world state (might have updated stats)
+    if (chosenCity && currentEpoch >= 2 && currentEpoch <= 4 && interventionsRemaining > 0 && !yearAnimating) {
       const updatedCity = worldState?.cities.find(c => c.id === chosenCity.id) || chosenCity;
       selectCity(updatedCity);
     }
-  }, [currentEpoch, chosenCity, interventionsRemaining, isAnimating]);
+  }, [currentEpoch, chosenCity, interventionsRemaining, yearAnimating]);
 
   // Handle city click (epoch 1 only)
   const handleCityClick = useCallback((city: City) => {
@@ -57,7 +61,7 @@ export default function Home() {
     }
   }, [selectCity, currentEpoch]);
 
-  // Handle intervention — works for all epochs
+  // Handle intervention
   const handleIntervention = useCallback(
     (description: string) => {
       if (!chosenCity && !selectedCity) return;
@@ -70,35 +74,44 @@ export default function Home() {
         setChosenCity(selectedCity);
       }
 
-      // Start ripple animation
+      // Start ripple animation (visual only, fixed 5s)
       setRippleCenter({ lat: city.lat, lng: city.lng });
       setRippleProgress(0);
-      setIsAnimating(true);
-      setTargetYear(epochConfig.endYear);
 
-      // Close panel
-      selectCity(null);
-
-      // Ripple animation
-      const duration = 5000;
-      const startTime = Date.now();
+      const rippleDuration = 5000;
+      const rippleStart = Date.now();
       const animateRipple = () => {
-        const elapsed = Date.now() - startTime;
-        const progress = Math.min(elapsed / duration, 1);
+        const elapsed = Date.now() - rippleStart;
+        const progress = Math.min(elapsed / rippleDuration, 1);
         setRippleProgress(1 - (1 - progress) * (1 - progress));
         if (progress < 1) {
           requestAnimationFrame(animateRipple);
         } else {
-          setIsAnimating(false);
           setRippleCenter(null);
-          setTargetYear(null);
         }
       };
       requestAnimationFrame(animateRipple);
 
-      // Fire API
+      // Start year counter animation (matches API response time)
+      setYearAnimating(true);
+      setTargetYear(epochConfig.endYear);
+      setApiResolved(false);
+
+      // Close panel
+      selectCity(null);
+
+      // Fire API — year counter stops when this resolves
       submitIntervention(description).then((result) => {
         if (result) setLastResult(result);
+
+        // Signal year counter to finish
+        setApiResolved(true);
+
+        // After year counter finishes its snap animation, stop
+        setTimeout(() => {
+          setYearAnimating(false);
+          setTargetYear(undefined);
+        }, 1000);
       });
     },
     [currentEpoch, submitIntervention, selectCity, chosenCity, selectedCity, setChosenCity]
@@ -109,6 +122,9 @@ export default function Home() {
     reset();
     setLastResult(null);
     setIsInitialized(false);
+    setYearAnimating(false);
+    setTargetYear(undefined);
+    setApiResolved(false);
   }, [reset]);
 
   // Show goal screen for epoch 5
@@ -121,6 +137,9 @@ export default function Home() {
     return <div className="w-screen h-screen bg-black" />;
   }
 
+  // Epoch 4 results: user has submitted but hasn't gone to final screen yet
+  const showResultsButton = currentEpoch === 4 && interventionsRemaining === 0 && !loading && !yearAnimating;
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-black">
       {/* Globe */}
@@ -131,6 +150,7 @@ export default function Home() {
           rippleCenter={rippleCenter}
           rippleProgress={rippleProgress}
           milestones={lastResult?.milestones}
+          isLoading={loading}
         />
       </div>
 
@@ -142,9 +162,9 @@ export default function Home() {
           <YearCounter
             year={worldState.year}
             epoch={currentEpoch}
-            interventionsRemaining={interventionsRemaining}
-            isAnimating={isAnimating}
-            targetYear={targetYear ?? undefined}
+            isAnimating={yearAnimating}
+            targetYear={targetYear}
+            apiResolved={apiResolved}
           />
 
           <button
@@ -165,16 +185,41 @@ export default function Home() {
         />
       )}
 
-      {/* City detail — full-screen (epoch 1) or side panel with embedded input (epochs 2-4) */}
+      {/* City detail */}
       <CityDetail
         city={selectedCity}
         worldState={worldState}
         onClose={() => selectCity(null)}
+        onCitySelect={(city) => selectCity(city)}
         onSubmitIntervention={handleIntervention}
       />
 
+      {/* "See Your Results" button — epoch 4 after submission, gated on image ready */}
+      {showResultsButton && (
+        <div className="absolute bottom-10 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-3">
+          {earlyImageBase64 ? (
+            <button
+              onClick={advanceToResults}
+              className="px-10 py-4 bg-amber-600 hover:bg-amber-500 rounded-xl text-black font-bold text-lg
+                       transition-all shadow-lg shadow-amber-900/50 animate-pulse hover:animate-none"
+            >
+              See Your Results
+            </button>
+          ) : (
+            <div className="flex items-center gap-3 px-8 py-4 bg-black/70 border border-amber-700/40 rounded-xl backdrop-blur-sm">
+              <div className="flex gap-1">
+                <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
+                <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" style={{ animationDelay: '75ms' }} />
+                <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
+              </div>
+              <span className="text-amber-400/80 text-sm">Preparing your results...</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Instructions hint */}
-      {!selectedCity && interventionsRemaining > 0 && !isAnimating && (
+      {!selectedCity && interventionsRemaining > 0 && !yearAnimating && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-gray-500 text-sm animate-pulse">
           {currentEpoch === 1
             ? 'Click a city to begin your journey'

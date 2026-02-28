@@ -20,6 +20,7 @@ interface GlobeProps {
   rippleCenter?: { lat: number; lng: number } | null;
   rippleProgress?: number;
   milestones?: Milestone[];
+  isLoading?: boolean;
 }
 
 export default function Globe({
@@ -28,12 +29,12 @@ export default function Globe({
   rippleCenter,
   rippleProgress = 1,
   milestones = [],
+  isLoading = false,
 }: GlobeProps) {
   const globeRef = useRef<any>(null);
   const { worldState, currentEpoch, chosenCity } = useGameStore();
   const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
 
-  // Handle window resize
   useEffect(() => {
     const handleResize = () => {
       setDimensions({ width: window.innerWidth, height: window.innerHeight });
@@ -43,16 +44,16 @@ export default function Globe({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Auto-rotate
+  // Auto-rotate — faster during loading
   useEffect(() => {
     if (globeRef.current) {
       const controls = globeRef.current.controls();
       if (controls) {
         controls.autoRotate = true;
-        controls.autoRotateSpeed = 0.3;
+        controls.autoRotateSpeed = isLoading ? 1.2 : 0.3;
       }
     }
-  }, []);
+  }, [isLoading]);
 
   // Fly to selected city (epoch 1 browsing)
   useEffect(() => {
@@ -87,10 +88,9 @@ export default function Globe({
       if (distance <= rippleRadius) {
         const distFromFront = rippleRadius - distance;
         if (distFromFront < bandWidth) {
-          const change = city.change;
-          if (change === 'brighter' || change === 'new') {
+          if (city.change === 'brighter' || city.change === 'new') {
             return { ...city, brightness: Math.min(city.brightness * 1.8, 1) };
-          } else if (change === 'dimmer' || change === 'gone') {
+          } else if (city.change === 'dimmer' || city.change === 'gone') {
             return { ...city, brightness: city.brightness * 0.4 };
           }
         }
@@ -103,7 +103,6 @@ export default function Globe({
   const cityPoints = getVisibleCities();
   const arcsData = worldState?.tradeRoutes || [];
 
-  // Milestones visible based on ripple progress
   const visibleMilestones = useMemo(() => {
     if (!rippleCenter || rippleProgress >= 1 || milestones.length === 0) return [];
     const rippleRadius = rippleProgress * 180;
@@ -119,14 +118,14 @@ export default function Globe({
     }));
   }, [visibleMilestones]);
 
-  // Point layer callbacks
+  // Point layer — BRIGHTER, LARGER cities
   const pointLat = (d: object) => (d as City).lat;
   const pointLng = (d: object) => (d as City).lng;
-  const pointAltitude = (d: object) => (d as City).brightness * 0.02;
+  const pointAltitude = (d: object) => Math.max((d as City).brightness, 0.4) * 0.03;
   const pointRadius = (d: object) => {
     const city = d as City;
-    const base = Math.sqrt(city.population) * 0.002 + 0.3;
-    // Highlight chosen city in epochs 2-4, or selected city in epoch 1
+    // Much larger base size for visibility
+    const base = Math.sqrt(city.population) * 0.003 + 0.6;
     const isHighlighted = (chosenCity && currentEpoch >= 2 && city.id === chosenCity.id)
       || (selectedCity && city.id === selectedCity.id);
     return isHighlighted ? base * 2.5 : base;
@@ -135,66 +134,20 @@ export default function Globe({
     const city = d as City;
     const isHighlighted = (chosenCity && currentEpoch >= 2 && city.id === chosenCity.id)
       || (selectedCity && city.id === selectedCity.id);
-    return isHighlighted ? '#ffffff' : getCityColor(city.techLevel);
-  };
-  const pointLabel = (d: object) => {
-    const city = d as City;
-    return `
-    <div style="
-      background: rgba(0,0,0,0.85);
-      padding: 8px 12px;
-      border-radius: 8px;
-      border: 1px solid ${getCityColor(city.techLevel)};
-      max-width: 250px;
-    ">
-      <div style="color: ${getCityColor(city.techLevel)}; font-weight: bold; margin-bottom: 4px;">
-        ${city.name}
-      </div>
-      <div style="color: #aaa; font-size: 12px; margin-bottom: 4px;">
-        ${city.civilization} • Pop: ${city.population.toLocaleString()}
-      </div>
-      <div style="color: #ddd; font-size: 11px;">
-        ${city.description}
-      </div>
-      ${city.causalNote ? `
-        <div style="color: #f0c040; font-size: 11px; margin-top: 8px; padding-top: 8px; border-top: 1px solid #333;">
-          ${city.causalNote}
-        </div>
-      ` : ''}
-    </div>
-  `;
+    return isHighlighted ? '#ffffff' : getCityColor(Math.max(city.techLevel, 3));
   };
 
-  // Arc layer callbacks
+  // Arc layer
   const arcStartLat = (d: object) => (d as TradeRoute).from.lat;
   const arcStartLng = (d: object) => (d as TradeRoute).from.lng;
   const arcEndLat = (d: object) => (d as TradeRoute).to.lat;
   const arcEndLng = (d: object) => (d as TradeRoute).to.lng;
   const arcColor = () => ['rgba(255, 170, 0, 0.6)', 'rgba(255, 102, 0, 0.6)'];
   const arcStroke = (d: object) => (d as TradeRoute).volume * 0.3;
-  const arcLabel = (d: object) => {
-    const route = d as TradeRoute;
-    return `
-    <div style="
-      background: rgba(0,0,0,0.85);
-      padding: 6px 10px;
-      border-radius: 6px;
-      border: 1px solid #ff6600;
-      max-width: 200px;
-    ">
-      <div style="color: #ff9900; font-weight: bold; font-size: 12px;">
-        ${route.from.city} → ${route.to.city}
-      </div>
-      <div style="color: #ddd; font-size: 11px; margin-top: 4px;">
-        ${route.description}
-      </div>
-    </div>
-  `;
-  };
 
   // City click — only epoch 1
   const handlePointClick = (point: object) => {
-    if (currentEpoch !== 1) return; // Locked after epoch 1
+    if (currentEpoch !== 1) return;
     const city = point as City;
     if (onCityClick) onCityClick(city);
   };
@@ -246,7 +199,6 @@ export default function Globe({
         pointAltitude={pointAltitude}
         pointRadius={pointRadius}
         pointColor={pointColor}
-        pointLabel={pointLabel}
         onPointClick={handlePointClick}
         arcsData={arcsData}
         arcStartLat={arcStartLat}
@@ -258,7 +210,6 @@ export default function Globe({
         arcDashLength={0.4}
         arcDashGap={0.2}
         arcDashAnimateTime={2000}
-        arcLabel={arcLabel}
         htmlElementsData={milestoneElements}
         htmlLat={htmlLat}
         htmlLng={htmlLng}
@@ -268,7 +219,7 @@ export default function Globe({
         ringLat={(d: object) => (d as any).lat}
         ringLng={(d: object) => (d as any).lng}
         ringColor={() => (t: number) => `rgba(255, 200, 50, ${1 - t})`}
-        ringMaxRadius={3}
+        ringMaxRadius={4}
         ringPropagationSpeed={2}
         ringRepeatPeriod={800}
         atmosphereColor="#4a3000"

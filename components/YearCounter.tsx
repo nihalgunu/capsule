@@ -1,47 +1,113 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { formatYear, EPOCHS } from '@/lib/types';
 
 interface YearCounterProps {
   year: number;
   epoch: 1 | 2 | 3 | 4 | 5;
-  interventionsRemaining: number;
   isAnimating?: boolean;
   targetYear?: number;
+  apiResolved?: boolean;
 }
 
 export default function YearCounter({
   year,
   epoch,
-  interventionsRemaining,
   isAnimating = false,
   targetYear,
+  apiResolved = false,
 }: YearCounterProps) {
   const [displayYear, setDisplayYear] = useState(year);
+  const animStartRef = useRef<number | null>(null);
+  const animStartYearRef = useRef(year);
+  const frameRef = useRef<number | null>(null);
   const epochConfig = EPOCHS[Math.min(epoch - 1, EPOCHS.length - 1)];
 
   useEffect(() => {
-    if (!isAnimating || !targetYear || targetYear === year) {
+    // When not animating, snap to the actual year
+    if (!isAnimating || !targetYear) {
+      if (frameRef.current) cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+      animStartRef.current = null;
       setDisplayYear(year);
       return;
     }
 
-    const startYear = year;
-    const endYear = targetYear;
-    const duration = 4000;
-    const startTime = Date.now();
+    // Starting animation — capture start year and time
+    if (animStartRef.current === null) {
+      animStartRef.current = Date.now();
+      animStartYearRef.current = displayYear;
+    }
+
+    const startYear = animStartYearRef.current;
+    const totalRange = targetYear - startYear;
+    if (totalRange === 0) return;
+
+    // Asymptotic animation: approaches ~90% over ~30s, never reaches target until API resolves
+    const TAU = 25000; // time constant in ms
 
     const animate = () => {
-      const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setDisplayYear(Math.round(startYear + (endYear - startYear) * eased));
-      if (progress < 1) requestAnimationFrame(animate);
+      const elapsed = Date.now() - (animStartRef.current || Date.now());
+
+      if (apiResolved) {
+        // API resolved — quickly finish animation over 800ms
+        const finishStart = Date.now();
+        const currentDisplay = displayYear;
+        const finishAnimate = () => {
+          const finishElapsed = Date.now() - finishStart;
+          const finishProgress = Math.min(finishElapsed / 800, 1);
+          const eased = 1 - Math.pow(1 - finishProgress, 3);
+          setDisplayYear(Math.round(currentDisplay + (targetYear - currentDisplay) * eased));
+          if (finishProgress < 1) {
+            frameRef.current = requestAnimationFrame(finishAnimate);
+          }
+        };
+        frameRef.current = requestAnimationFrame(finishAnimate);
+        return;
+      }
+
+      // Asymptotic approach — never quite reaches target
+      const progress = 1 - Math.exp(-elapsed / TAU);
+      const newYear = Math.round(startYear + totalRange * progress * 0.92);
+      setDisplayYear(newYear);
+      frameRef.current = requestAnimationFrame(animate);
     };
 
-    requestAnimationFrame(animate);
-  }, [isAnimating, targetYear, year]);
+    frameRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (frameRef.current) cancelAnimationFrame(frameRef.current);
+    };
+  }, [isAnimating, targetYear, apiResolved]);
+
+  // When apiResolved changes to true, trigger the finish animation
+  useEffect(() => {
+    if (apiResolved && isAnimating && targetYear) {
+      const currentDisplay = displayYear;
+      const startTime = Date.now();
+
+      if (frameRef.current) cancelAnimationFrame(frameRef.current);
+
+      const finishAnimate = () => {
+        const elapsed = Date.now() - startTime;
+        const progress = Math.min(elapsed / 800, 1);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        setDisplayYear(Math.round(currentDisplay + (targetYear - currentDisplay) * eased));
+        if (progress < 1) {
+          frameRef.current = requestAnimationFrame(finishAnimate);
+        }
+      };
+      frameRef.current = requestAnimationFrame(finishAnimate);
+    }
+  }, [apiResolved]);
+
+  // Snap to year when it changes externally (epoch transitions)
+  useEffect(() => {
+    if (!isAnimating) {
+      setDisplayYear(year);
+    }
+  }, [year, isAnimating]);
 
   return (
     <div className="flex items-center gap-6">
@@ -56,7 +122,7 @@ export default function YearCounter({
 
       <div className="flex flex-col items-center min-w-[120px]">
         <span className={`text-3xl font-bold tracking-tight transition-all ${
-          isAnimating ? 'text-amber-300 animate-pulse' : 'text-white'
+          isAnimating ? 'text-amber-300' : 'text-white'
         }`}>
           {formatYear(displayYear)}
         </span>

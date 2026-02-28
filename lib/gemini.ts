@@ -5,7 +5,7 @@ const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
 const MODELS = {
   reasoning: 'gemini-2.5-flash',
-  image: 'gemini-2.0-flash-preview-image-generation',
+  image: 'gemini-3-pro-image-preview',
 };
 
 // Generate initial world state for an epoch

@@ -82,13 +82,6 @@ export interface GameResult {
   causalChain: string[];    // How the 4 decisions connected
 }
 
-export interface RegionContext {
-  description: string;
-  suggestions: {
-    text: string;
-    reasoning: string;
-  }[];
-}
 
 export interface GameState {
   currentEpoch: 1 | 2 | 3 | 4 | 5;
