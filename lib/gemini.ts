@@ -1,93 +1,39 @@
-// Chronicle: Gemini API Client
 import { GoogleGenAI } from '@google/genai';
-import { WorldState, InterventionResult, RegionContext, Intervention } from './types';
+import { WorldState, InterventionResult, RegionContext, Intervention, GOAL_STATE } from './types';
 
-// Initialize the Gemini client
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY || '' });
 
-// Model configurations
 const MODELS = {
-  reasoning: 'gemini-2.5-flash', // Latest flash model, fast & affordable
-  image: 'gemini-2.0-flash-preview-image-generation', // Image generation
-  tts: 'gemini-2.5-flash-preview-tts', // Text-to-speech
+  reasoning: 'gemini-2.5-flash',
+  image: 'gemini-2.0-flash-preview-image-generation',
 };
 
-// Generate initial world state
-export async function generateWorld(
-  epoch: number,
-  startYear: number
-): Promise<WorldState> {
+// Generate initial world state for an epoch
+export async function generateWorld(epoch: number, startYear: number): Promise<WorldState> {
   const yearDisplay = startYear < 0 ? `${Math.abs(startYear)} BC` : `${startYear} AD`;
 
-  const prompt = `Generate the state of Earth at ${yearDisplay} for an alternate history game.
+  const prompt = `Generate Earth at ${yearDisplay} for an alternate history game. Goal: ${GOAL_STATE}.
 
-You are creating data for a 3D globe visualization. Be geographically accurate.
+Include 12-15 cities with: id, name, lat, lng, population, brightness (0-1), techLevel (1-10), civilization, description (1 sentence).
+Include 4-6 trade routes with: id, from {lat,lng,city}, to {lat,lng,city}, volume (1-10), description.
+Include 4-6 regions with: id, civilization, color (hex), center {lat,lng}, radius.
+Include narrative: 2-3 sentences about the world state.
 
-Include:
-- 15-20 cities/settlements with:
-  - id: unique string identifier
-  - name: city name
-  - lat: latitude (-90 to 90)
-  - lng: longitude (-180 to 180)
-  - population: number (100-50000 for this era)
-  - brightness: 0-1 (how prominent on the globe)
-  - techLevel: 1-10 (1=stone age, 10=space age)
-  - civilization: civilization name
-  - description: 1-2 sentences about this place
+Return JSON: {year,epoch:${epoch},cities,tradeRoutes,regions,narrative}`;
 
-- 5-8 trade routes with:
-  - id: unique string
-  - from: { lat, lng, city: city name }
-  - to: { lat, lng, city: city name }
-  - volume: 1-10 (thickness of arc)
-  - description: what's being traded
+  const response = await genAI.models.generateContent({
+    model: MODELS.reasoning,
+    contents: prompt,
+    config: { responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 1024 } },
+  });
 
-- 5-7 civilization regions with:
-  - id: unique string
-  - civilization: civilization name
-  - color: hex color string
-  - center: { lat, lng }
-  - radius: territory size in degrees
-
-- narrative: 3-sentence overall world description
-
-Focus on geographic accuracy. Major centers should be in correct locations.
-Distribute cities across multiple continents for visual interest.
-
-Return valid JSON matching this TypeScript interface:
-{
-  year: number,
-  epoch: ${epoch},
-  cities: City[],
-  tradeRoutes: TradeRoute[],
-  regions: Region[],
-  narrative: string
-}`;
-
-  try {
-    const response = await genAI.models.generateContent({
-      model: MODELS.reasoning,
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-      },
-    });
-
-    const text = response.text || '';
-    const worldState = JSON.parse(text) as WorldState;
-
-    // Ensure epoch and year are set correctly
-    worldState.epoch = epoch as 1 | 2 | 3 | 4;
-    worldState.year = startYear;
-
-    return worldState;
-  } catch (error) {
-    console.error('Error generating world:', error);
-    throw error;
-  }
+  const worldState = JSON.parse(response.text || '') as WorldState;
+  worldState.epoch = epoch as 1 | 2 | 3 | 4 | 5;
+  worldState.year = startYear;
+  return worldState;
 }
 
-// Process an intervention and simulate consequences
+// Process an intervention — the core AI call
 export async function processIntervention(
   intervention: string,
   lat: number,
@@ -97,192 +43,112 @@ export async function processIntervention(
   startYear: number,
   endYear: number
 ): Promise<InterventionResult> {
-  const startYearDisplay = startYear < 0 ? `${Math.abs(startYear)} BC` : `${startYear} AD`;
-  const endYearDisplay = endYear < 0 ? `${Math.abs(endYear)} BC` : `${endYear} AD`;
-  const yearSpan = Math.abs(endYear - startYear);
+  const startDisplay = startYear < 0 ? `${Math.abs(startYear)} BC` : `${startYear} AD`;
+  const endDisplay = endYear < 0 ? `${Math.abs(endYear)} BC` : `${endYear} AD`;
 
-  const prompt = `You are simulating ${yearSpan.toLocaleString()} years of alternate history on a 3D globe.
+  // Build previous decisions summary for causal references
+  const prevDecisions = previousInterventions
+    .map(i => `"${i.description}" at ${i.year < 0 ? Math.abs(i.year) + ' BC' : i.year + ' AD'}`)
+    .join('; ');
 
-CURRENT WORLD STATE:
-${JSON.stringify(currentState, null, 2)}
+  const prompt = `Alternate history: ${startDisplay} to ${endDisplay}. Player goal: ${GOAL_STATE}.
 
-PREVIOUS INTERVENTIONS:
-${JSON.stringify(previousInterventions, null, 2)}
+STATE: ${JSON.stringify(currentState)}
 
-NEW INTERVENTION:
-Location: ${lat.toFixed(2)}, ${lng.toFixed(2)}
-Change: "${intervention}"
-Simulate from ${startYearDisplay} to ${endYearDisplay}.
+PREVIOUS DECISIONS: ${prevDecisions || 'None'}
 
-INSTRUCTIONS:
-1. Starting from the intervention location, reason about how this change spreads geographically and temporally across the globe over ${yearSpan.toLocaleString()} years.
+NEW INTERVENTION at (${lat.toFixed(1)},${lng.toFixed(1)}): "${intervention}"
 
-2. Changes should radiate outward from the intervention point. Nearby regions are affected first and most strongly. Distant regions are affected later and more indirectly.
+RULES:
+- Every city causalNote MUST reference the exact previous intervention that caused the change: "Because you [intervention text], [effect]."
+- worldNarrative (2-3 sentences) must reference how previous decisions shaped this world AND hint at progress/setbacks toward interstellar travel
+- Keep descriptions to 1 sentence max per city
+- Return 10-15 cities (existing + 1-2 new ones)
+- Each city needs change: "brighter"|"dimmer"|"new"|"gone"|"unchanged"
 
-3. Account for all previous interventions. New consequences must be consistent with the already-altered world.
+JSON: {milestones:[{year,lat,lng,event,causalLink}],citiesAffected:[{id,name,lat,lng,population,brightness,techLevel,civilization,description,causalNote,change}],tradeRoutes:[{id,from:{lat,lng,city},to:{lat,lng,city},volume,description}],regions:[{id,civilization,color,center:{lat,lng},radius}],worldNarrative:"",narrationScript:"3 sentences",mostSurprising:{lat,lng,description,causalChain:["..."]}}`;
 
-4. Be BOLD and CREATIVE. Small changes cascade dramatically over millennia. Don't be conservative - this is alternate history!
+  const response = await genAI.models.generateContent({
+    model: MODELS.reasoning,
+    contents: prompt,
+    config: {
+      responseMimeType: 'application/json',
+      maxOutputTokens: 16384,
+      thinkingConfig: { thinkingBudget: 2048 },
+    },
+  });
 
-5. Every affected city MUST have a causalNote explaining why it changed, traced back to the player's intervention(s). Format: "Because [intervention], [consequence happened here]."
-
-6. Include a narrationScript: 4-6 sentences that a narrator would speak as the ripple spreads across the globe. Reference specific geographic regions and what's happening there. This will be read aloud by text-to-speech.
-
-7. For the 3 most dramatically changed cities, include an imagePrompt: a detailed description (50-80 words) of what this city looks like in the alternate timeline. Include architectural style, atmosphere, notable features. This will be used for image generation.
-
-8. Include 6-8 milestone events spread across the time period, each with geographic coordinates.
-
-Return JSON matching this structure:
-{
-  milestones: [{ year: number, lat: number, lng: number, event: string, causalLink: string }],
-  citiesAffected: City[], // Full updated city list (not just changes)
-  tradeRoutes: TradeRoute[], // Full updated list
-  regions: Region[], // Full updated list
-  worldNarrative: string, // Overall state description
-  narrationScript: string, // 4-6 sentences for TTS narration
-  mostSurprising: {
-    lat: number,
-    lng: number,
-    description: string,
-    causalChain: string[], // Step by step causal chain
-    imagePrompt: string // Detailed visual description
-  }
-}`;
-
-  try {
-    const response = await genAI.models.generateContent({
-      model: MODELS.reasoning,
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-      },
-    });
-
-    const text = response.text || '';
-    const result = JSON.parse(text) as InterventionResult;
-
-    return result;
-  } catch (error) {
-    console.error('Error processing intervention:', error);
-    throw error;
-  }
+  return JSON.parse(response.text || '') as InterventionResult;
 }
 
-// Get region context when player zooms in
+// Get region context when player zooms in (epochs 2-4)
 export async function getRegionContext(
   lat: number,
   lng: number,
   currentState: WorldState
 ): Promise<RegionContext> {
-  const yearDisplay = currentState.year < 0
-    ? `${Math.abs(currentState.year)} BC`
-    : `${currentState.year} AD`;
+  const yearDisplay = currentState.year < 0 ? `${Math.abs(currentState.year)} BC` : `${currentState.year} AD`;
 
-  const prompt = `CURRENT WORLD STATE:
-${JSON.stringify(currentState, null, 2)}
+  const prompt = `World at ${yearDisplay}. Player goal: ${GOAL_STATE}.
+State: ${JSON.stringify(currentState)}
+Player zoomed to (${lat.toFixed(1)}, ${lng.toFixed(1)}).
 
-The player has zoomed into coordinates: ${lat.toFixed(2)}, ${lng.toFixed(2)}
-Current year: ${yearDisplay}
+Return JSON: {"description":"2 sentences about this region","suggestions":[{"text":"intervention","reasoning":"why interesting"}]} (3-4 suggestions)`;
 
-Provide:
-1. A 2-3 sentence description of this region at this time. What civilizations are here? What's happening?
+  const response = await genAI.models.generateContent({
+    model: MODELS.reasoning,
+    contents: prompt,
+    config: { responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 1024 } },
+  });
 
-2. 3-4 suggested interventions specific to this region and time period. Each should be:
-   - Historically grounded (or plausible for this era)
-   - Likely to produce interesting cascading consequences
-   - Specific to this geographic location
-
-Return JSON:
-{
-  "description": "string",
-  "suggestions": [
-    { "text": "intervention description", "reasoning": "why this would be interesting" }
-  ]
-}`;
-
-  try {
-    const response = await genAI.models.generateContent({
-      model: MODELS.reasoning,
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-      },
-    });
-
-    const text = response.text || '';
-    return JSON.parse(text) as RegionContext;
-  } catch (error) {
-    console.error('Error getting region context:', error);
-    throw error;
-  }
+  return JSON.parse(response.text || '') as RegionContext;
 }
 
-// Generate TTS narration audio
-export async function generateNarration(script: string): Promise<{ data: string; mimeType: string }> {
-  const prompt = `Narrate the following in a documentary voice. Authoritative, measured, slightly awed. Pace it slowly, with natural pauses between geographic shifts:
+// Score the player's 4 decisions against the goal
+export async function generateScore(
+  interventions: Intervention[],
+  worldState: WorldState,
+  goal: string
+): Promise<{ score: number; summary: string; causalChain: string[] }> {
+  const decisions = interventions.map((i, idx) =>
+    `${idx + 1}. At ${i.year < 0 ? Math.abs(i.year) + ' BC' : i.year + ' AD'}: "${i.description}"`
+  ).join('\n');
 
-"${script}"`;
+  const prompt = `You are scoring an alternate history game. The player made 4 decisions trying to achieve: "${goal}"
 
-  try {
-    const response = await genAI.models.generateContent({
-      model: MODELS.tts,
-      contents: prompt,
-      config: {
-        responseModalities: ['audio'],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: 'Kore' },
-          },
-        },
-      },
-    });
+Their decisions:
+${decisions}
 
-    // Extract audio data from response
-    const candidate = response.candidates?.[0];
-    if (candidate?.content?.parts) {
-      for (const part of candidate.content.parts) {
-        if (part.inlineData?.data) {
-          return {
-            data: part.inlineData.data,
-            mimeType: part.inlineData.mimeType || 'audio/wav',
-          };
-        }
-      }
-    }
+Final world state at ${worldState.year} AD: ${JSON.stringify(worldState)}
 
-    throw new Error('No audio data in response');
-  } catch (error) {
-    console.error('Error generating narration:', error);
-    throw error;
-  }
+Score 0-100 on how close they got to the goal. Be fair but generous — reward creative thinking.
+Return JSON: {"score":number,"summary":"3-4 sentences analyzing how their decisions connected","causalChain":["step 1 description","step 2 description","step 3 description","step 4 description","outcome"]}`;
+
+  const response = await genAI.models.generateContent({
+    model: MODELS.reasoning,
+    contents: prompt,
+    config: { responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 2048 } },
+  });
+
+  return JSON.parse(response.text || '');
 }
 
-// Generate city illustration
-export async function generateCityImage(imagePrompt: string): Promise<string> {
-  const prompt = `Generate a detailed, atmospheric illustration in a historical art style.
+// Generate ONE final image of Earth at the goal year
+export async function generateFinalImage(worldState: WorldState, goal: string): Promise<string> {
+  const prompt = `Generate a cinematic wide-angle view of Earth from low orbit at year ${worldState.year} AD in an alternate timeline. The goal was: ${goal}. Show whether humanity achieved it — spacecraft, orbital stations, or a world that fell short. Dark space background, Earth glowing below. Painterly, dramatic, 16:9. No text.`;
 
-The scene: ${imagePrompt}
+  const response = await genAI.models.generateContent({
+    model: MODELS.image,
+    contents: prompt,
+  });
 
-Style: Painterly, dramatic cinematic lighting, rich texture and detail. Color palette leans warm (amber, gold, deep blue). Slight stylization, not photorealistic. 16:9 aspect ratio. No text overlays.`;
-
-  try {
-    const response = await genAI.models.generateContent({
-      model: MODELS.image,
-      contents: prompt,
-    });
-
-    // Extract image data from response
-    const candidate = response.candidates?.[0];
-    if (candidate?.content?.parts) {
-      for (const part of candidate.content.parts) {
-        if (part.inlineData?.data) {
-          return part.inlineData.data; // Base64 image
-        }
+  const candidate = response.candidates?.[0];
+  if (candidate?.content?.parts) {
+    for (const part of candidate.content.parts) {
+      if (part.inlineData?.data) {
+        return part.inlineData.data;
       }
     }
-
-    throw new Error('No image data in response');
-  } catch (error) {
-    console.error('Error generating city image:', error);
-    throw error;
   }
+  throw new Error('No image data in response');
 }

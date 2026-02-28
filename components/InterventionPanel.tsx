@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { RegionContext, WorldState } from '@/lib/types';
 
 interface InterventionPanelProps {
@@ -23,15 +23,23 @@ export default function InterventionPanel({
   const [customText, setCustomText] = useState('');
   const [context, setContext] = useState<RegionContext | null>(null);
   const [loadingContext, setLoadingContext] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
-  // Fetch region context when zoomed in
+  // Fetch region context when zoomed in — debounced + abortable
   useEffect(() => {
     if (!isVisible || !zoomLocation) {
       setContext(null);
       return;
     }
 
-    const fetchContext = async () => {
+    // Abort any in-flight request
+    abortRef.current?.abort();
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    // Debounce 500ms to avoid spam from continuous zoom changes
+    const timer = setTimeout(async () => {
       setLoadingContext(true);
       try {
         const response = await fetch('/api/region-context', {
@@ -42,6 +50,7 @@ export default function InterventionPanel({
             lng: zoomLocation.lng,
             currentState: worldState,
           }),
+          signal: controller.signal,
         });
 
         if (response.ok) {
@@ -49,13 +58,19 @@ export default function InterventionPanel({
           setContext(data);
         }
       } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') return;
         console.error('Error fetching region context:', error);
       } finally {
-        setLoadingContext(false);
+        if (!controller.signal.aborted) {
+          setLoadingContext(false);
+        }
       }
-    };
+    }, 500);
 
-    fetchContext();
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
   }, [isVisible, zoomLocation?.lat, zoomLocation?.lng]);
 
   const handleSuggestionClick = (suggestion: string) => {

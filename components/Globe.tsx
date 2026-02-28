@@ -16,6 +16,7 @@ const GlobeGL = dynamic(() => import('react-globe.gl'), {
 });
 
 interface GlobeProps {
+  selectedCity?: City | null;
   onCityClick?: (city: City) => void;
   onZoomChange?: (altitude: number, location: { lat: number; lng: number }) => void;
   rippleCenter?: { lat: number; lng: number } | null;
@@ -24,6 +25,7 @@ interface GlobeProps {
 }
 
 export default function Globe({
+  selectedCity,
   onCityClick,
   onZoomChange,
   rippleCenter,
@@ -58,6 +60,17 @@ export default function Globe({
       }
     }
   }, []);
+
+  // Fly to selected city — altitude 2.0 stays above the zoom threshold (< 1.5)
+  // so it doesn't trigger intervention panel or region-context spam
+  useEffect(() => {
+    if (selectedCity && globeRef.current) {
+      globeRef.current.pointOfView(
+        { lat: selectedCity.lat, lng: selectedCity.lng, altitude: 2.0 },
+        1000
+      );
+    }
+  }, [selectedCity?.id]);
 
   // Handle POV changes (zoom detection)
   const handlePovChange = useCallback(
@@ -140,8 +153,15 @@ export default function Globe({
   const pointLat = (d: object) => (d as City).lat;
   const pointLng = (d: object) => (d as City).lng;
   const pointAltitude = (d: object) => (d as City).brightness * 0.02;
-  const pointRadius = (d: object) => Math.sqrt((d as City).population) * 0.002 + 0.3;
-  const pointColor = (d: object) => getCityColor((d as City).techLevel);
+  const pointRadius = (d: object) => {
+    const city = d as City;
+    const base = Math.sqrt(city.population) * 0.002 + 0.3;
+    return selectedCity && city.id === selectedCity.id ? base * 2.5 : base;
+  };
+  const pointColor = (d: object) => {
+    const city = d as City;
+    return selectedCity && city.id === selectedCity.id ? '#ffffff' : getCityColor(city.techLevel);
+  };
   const pointLabel = (d: object) => {
     const city = d as City;
     return `
@@ -231,6 +251,12 @@ export default function Globe({
     return el;
   };
 
+  // Rings data for selected city highlight
+  const selectedRings = useMemo(() => {
+    if (!selectedCity) return [];
+    return [{ lat: selectedCity.lat, lng: selectedCity.lng }];
+  }, [selectedCity?.id]);
+
   return (
     <div className="w-full h-full bg-black">
       <GlobeGL
@@ -266,6 +292,14 @@ export default function Globe({
         htmlLng={htmlLng}
         htmlAltitude={htmlAltitude}
         htmlElement={htmlElement}
+        // Rings (selected city highlight)
+        ringsData={selectedRings}
+        ringLat={(d: object) => (d as any).lat}
+        ringLng={(d: object) => (d as any).lng}
+        ringColor={() => (t: number) => `rgba(255, 200, 50, ${1 - t})`}
+        ringMaxRadius={3}
+        ringPropagationSpeed={2}
+        ringRepeatPeriod={800}
         // Camera settings
         onZoom={handlePovChange}
         // Atmosphere

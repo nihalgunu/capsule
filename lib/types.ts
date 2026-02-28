@@ -1,8 +1,10 @@
 // Chronicle: Core TypeScript Interfaces
 
+export const GOAL_STATE = "Achieve interstellar travel capability by 4000 AD";
+
 export interface WorldState {
   year: number;
-  epoch: 1 | 2 | 3 | 4;
+  epoch: 1 | 2 | 3 | 4 | 5;
   cities: City[];
   tradeRoutes: TradeRoute[];
   regions: Region[];
@@ -14,31 +16,29 @@ export interface City {
   name: string;
   lat: number;
   lng: number;
-  population: number;      // Maps to dot size (100-50000)
-  brightness: number;      // 0-1, maps to glow intensity
-  techLevel: number;       // 1-10, maps to color (amber→white)
+  population: number;
+  brightness: number;      // 0-1
+  techLevel: number;       // 1-10
   civilization: string;
   description: string;
   causalNote?: string;     // "Because you did X..."
   change?: "brighter" | "dimmer" | "new" | "gone" | "unchanged";
-  imagePrompt?: string;    // For top 3 hero cities only
 }
 
 export interface TradeRoute {
   id: string;
   from: { lat: number; lng: number; city: string };
   to: { lat: number; lng: number; city: string };
-  volume: number;          // Maps to arc thickness (1-10)
+  volume: number;
   description: string;
-  causalNote?: string;
 }
 
 export interface Region {
   id: string;
   civilization: string;
-  color: string;           // Hex color for territory shading
+  color: string;
   center: { lat: number; lng: number };
-  radius: number;          // Rough territory size in degrees
+  radius: number;
 }
 
 export interface Milestone {
@@ -54,7 +54,7 @@ export interface Intervention {
   description: string;
   lat: number;
   lng: number;
-  epoch: 1 | 2 | 3 | 4;
+  epoch: 1 | 2 | 3 | 4 | 5;
   year: number;
 }
 
@@ -64,14 +64,20 @@ export interface InterventionResult {
   tradeRoutes: TradeRoute[];
   regions: Region[];
   worldNarrative: string;
-  narrationScript: string;  // 4-6 sentences for TTS
+  narrationScript: string;
   mostSurprising: {
     lat: number;
     lng: number;
     description: string;
     causalChain: string[];
-    imagePrompt: string;
   };
+}
+
+export interface GameResult {
+  score: number;            // 0-100
+  summary: string;          // AI analysis
+  finalImageBase64: string | null;
+  causalChain: string[];    // How the 4 decisions connected
 }
 
 export interface RegionContext {
@@ -83,27 +89,26 @@ export interface RegionContext {
 }
 
 export interface GameState {
-  currentEpoch: 1 | 2 | 3 | 4;
-  interventionsRemaining: number;  // Starts at 4
+  currentEpoch: 1 | 2 | 3 | 4 | 5;
+  interventionsRemaining: number;
   worldState: WorldState | null;
   previousInterventions: Intervention[];
   loading: boolean;
-  audioPlaying: boolean;
-  voiceSessionActive: boolean;
   selectedCity: City | null;
   zoomedIn: boolean;
   zoomLocation: { lat: number; lng: number } | null;
+  gameResult: GameResult | null;
 }
 
 // Epoch configuration
 export const EPOCHS = [
-  { epoch: 1, startYear: -10000, endYear: -2000, name: "Agricultural Revolution" },
-  { epoch: 2, startYear: -2000, endYear: 0, name: "Classical Civilizations" },
-  { epoch: 3, startYear: 0, endYear: 2000, name: "Modern Era" },
-  { epoch: 4, startYear: 2000, endYear: 4000, name: "Future" },
+  { epoch: 1, startYear: -10000, endYear: -2000, name: "Dawn of Civilization" },
+  { epoch: 2, startYear: -2000, endYear: 1, name: "Bronze Age" },
+  { epoch: 3, startYear: 1, endYear: 2000, name: "Classical Era" },
+  { epoch: 4, startYear: 2000, endYear: 4000, name: "Modern Day" },
+  { epoch: 5, startYear: 4000, endYear: 4000, name: "The Future" },
 ] as const;
 
-// Helper to format year display
 export function formatYear(year: number): string {
   if (year < 0) {
     return `${Math.abs(year)} BC`;
@@ -114,24 +119,14 @@ export function formatYear(year: number): string {
   }
 }
 
-// Helper to get city color based on tech level
 export function getCityColor(techLevel: number): string {
   const colors = [
-    '#4a3000', // 1: barely visible
-    '#6b4400', // 2
-    '#8b6914', // 3
-    '#b8860b', // 4: bronze age
-    '#daa520', // 5: classical
-    '#f0c040', // 6: medieval
-    '#f5d060', // 7: renaissance
-    '#fae080', // 8: early modern
-    '#fff4c0', // 9: industrial
-    '#ffffff', // 10: space age
+    '#4a3000', '#6b4400', '#8b6914', '#b8860b', '#daa520',
+    '#f0c040', '#f5d060', '#fae080', '#fff4c0', '#ffffff',
   ];
   return colors[Math.min(Math.max(techLevel - 1, 0), 9)];
 }
 
-// Helper to calculate angular distance between two points
 export function getAngularDistance(
   point1: { lat: number; lng: number },
   point2: { lat: number; lng: number }
@@ -140,11 +135,9 @@ export function getAngularDistance(
   const lat2 = point2.lat * Math.PI / 180;
   const dLat = (point2.lat - point1.lat) * Math.PI / 180;
   const dLng = (point2.lng - point1.lng) * Math.PI / 180;
-
   const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
             Math.cos(lat1) * Math.cos(lat2) *
             Math.sin(dLng / 2) * Math.sin(dLng / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-
-  return c * 180 / Math.PI; // Return in degrees
+  return c * 180 / Math.PI;
 }

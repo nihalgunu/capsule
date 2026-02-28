@@ -1,100 +1,234 @@
-# Chronicle UI Improvement Plan
+# Chronicle — Implementation Plan v2
 
-## Context
-The Chronicle alternate-history globe game has a working Gemini API integration but needs UI polish: TTS audio is broken (NotSupportedError), the intro is generic, city context requires too many clicks, intervention changes aren't visually clear, and the overall flow needs simplification. This plan addresses all 5 issues in dependency order.
+## Vision
 
----
+5-epoch alternate history game. 1 decision per epoch, 4 total. Goal: **interstellar travel by 4000 AD**. Entire game plays in **2-3 minutes**.
 
-## Phase 1: Fix TTS Audio Error
+Flow: **Visual (epoch 1) → Text-based (epochs 2-4) → Visual + Score (epoch 5)**
 
-**Problem**: Hardcoded `audio/wav` MIME type doesn't match Gemini's actual output (raw PCM L16 at 24kHz, not playable in browsers).
+## Epochs
 
-**Files**: `lib/gemini.ts`, `app/api/narrate/route.ts`, `components/NarrativePanel.tsx`
-
-- `lib/gemini.ts`: Change `generateNarration` return type from `string` to `{ data: string; mimeType: string }` — read `part.inlineData.mimeType` from the response
-- `app/api/narrate/route.ts`: If mimeType contains `L16` or `pcm`, prepend a 44-byte WAV header to the PCM buffer server-side, then return as `audio/wav`. Return `{ audioBase64, mimeType }` in the JSON response
-- `components/NarrativePanel.tsx`: Read `data.mimeType` from response instead of hardcoding `audio/wav`
-
----
-
-## Phase 2: Better World Intro (Replace Intro Overlay)
-
-**Problem**: `initWorld(true)` always uses mock data. Intro is generic and auto-dismisses after 3 seconds with no real context.
-
-**Files**: `app/page.tsx`, `lib/store.ts`
-
-- `app/page.tsx`:
-  - Change `initWorld(true)` → `initWorld(false)` to use real Gemini API
-  - Replace `showIntro` state with `introPhase: 'loading' | 'ready' | 'dismissed'`
-  - Remove 3-second auto-dismiss timer
-  - New intro overlay shows: epoch name, year, world narrative TLDR, stats (cities/civilizations/routes), and a "Begin" button
-  - Loading state shows "Generating world..." while API call runs
-- `lib/store.ts`: Add 15-second AbortController timeout to `initWorld` fetch, falling back to mock data on timeout
+| # | Year | Name | User Action | Time budget |
+|---|------|------|-------------|-------------|
+| 1 | 10000 BC | Dawn of Civilization | Click city → full-screen image → make a change | ~30s |
+| 2 | 2000 BC | Bronze Age | See world TLDR → click city → read TLDR → make a change | ~30s |
+| 3 | 1 AD | Classical Era | Same as epoch 2 | ~30s |
+| 4 | 2000 AD | Modern Day | Same as epoch 2 | ~30s |
+| 5 | 4000 AD | Goal State | See final image + score | ~15s |
 
 ---
 
-## Phase 3: Enhanced City Detail Panel
+## Static vs Dynamic Elements
 
-**Problem**: City panel works but lacks richness. No auto-selection when zooming near a city.
+### STATIC (0ms — precomputed, no AI needed)
 
-**Files**: `components/CityDetail.tsx`, `app/page.tsx`
+| Element | Where | Source |
+|---------|-------|--------|
+| Epoch 1 city images (15 .pngs) | Full-screen on city click | `public/cities/{id}.png` |
+| Epoch 1 city names, descriptions, locations | City labels on globe + overlay text | `lib/mock-data.ts` |
+| Epoch 2 mock cities (10 cities) | Fallback globe dots + city panel | `lib/mock-data.ts` |
+| Epoch 3 mock cities (~12 cities) | Fallback globe dots + city panel | `lib/mock-data.ts` (NEW) |
+| Epoch 4 mock cities (~12 cities) | Fallback globe dots + city panel | `lib/mock-data.ts` (NEW) |
+| Globe textures, UI chrome, animations | Always | CSS + three-globe assets |
+| Goal statement | Header banner, all epochs | Hardcoded constant |
+| Ripple animation on intervention | After submit | Client-side requestAnimationFrame |
+| Optimistic city updates on intervention | Immediate after submit | Client-side mock logic in store |
 
-- `components/CityDetail.tsx`:
-  - Accept `worldState` and `onCitySelect` as new props
-  - Move causalNote above description with "What Changed" header and left-border accent
-  - Add "Nearby" section showing 2-3 closest cities as clickable chips (using `getAngularDistance`)
-- `app/page.tsx`:
-  - Pass `worldState` and `onCitySelect` to CityDetail
-  - In `handleZoomChange`: when zooming in, auto-select nearest city within 15 degrees
+### DYNAMIC (AI-generated, has latency)
 
----
+| Element | When generated | Latency | Fallback if slow |
+|---------|----------------|---------|-------------------|
+| World TLDR (2-3 sentences) | Part of intervention response | ~10-15s | Optimistic generic narrative |
+| City causal notes ("Because you did X...") | Part of intervention response | ~10-15s | Optimistic generic note |
+| Updated cities/trade routes per epoch | Part of intervention response | ~10-15s | Mock data for that epoch |
+| AI world state (replaces mock) | Background after page load | ~15s | Mock data (already showing) |
+| Final image (1 image, epoch 5) | Background during epoch 4 | ~10s | Loading placeholder |
+| Score + analysis (epoch 5) | Background during epoch 4 | ~5s | Loading placeholder |
 
-## Phase 4: Intuitive Intervention Visuals (Ripple + Animations + Summary)
-
-**Problem**: Ripple just dims/brightens cities subtly. No post-intervention summary. Narration text hidden behind collapsed panel.
-
-**Files**: `components/Globe.tsx`, `app/page.tsx`, `components/NarrativePanel.tsx`
-
-- `components/Globe.tsx`:
-  - Add wave-band effect: cities just behind the ripple front get scaled (1.8x for brighter/new, 0.4x for dimmer/gone)
-  - Accept `milestones` prop, render via `htmlElementsData` layer as text labels at coordinates, filtered by ripple progress
-- `app/page.tsx`:
-  - Store `lastResult` and `showSummary` state
-  - After ripple completes, show a summary toast (bottom-center) with key changes: new cities, flourishing, declining counts
-  - Auto-dismiss after 6 seconds or on click
-  - Pass `milestones` to Globe component
-- `components/NarrativePanel.tsx`:
-  - Auto-expand panel when narrationScript arrives (`useEffect` sets `isExpanded = true`)
-  - Show narration script text visibly in the panel (not just audio), even while audio loads
+**Key insight:** The intervention API already returns everything needed — `worldNarrative` (world TLDR), `citiesAffected[].causalNote` (city TLDRs referencing previous decisions), updated cities. We just need the UI to surface these prominently.
 
 ---
 
-## Phase 5: UI Cleanup — Less Clicking
+## What the User Sees at Each Step
 
-**Problem**: Too much visual clutter, intervention panel too tall, flow not obvious.
+### Globe View (epochs 1-4, before clicking a city)
+- **World TLDR** — 2-3 sentence narrative pinned at top-left, always visible (not collapsed). **DYNAMIC** — comes from `worldState.narrative`. Shows what's happening globally and references previous decisions.
+- **Goal reminder** — Small text in header: "Goal: Interstellar travel by 4000 AD". **STATIC**.
+- **Epoch/year indicator** — Top center. **STATIC** (from epoch config).
+- **City dots on globe** — Clickable. **STATIC** (mock) initially, **DYNAMIC** (AI) swaps in.
+- **Previous decisions list** — Small pills in header showing what you've done so far. **STATIC** (from store).
 
-**Files**: `components/InterventionPanel.tsx`, `lib/store.ts`
+### City Click — Epoch 1 (full-screen immersive)
+- **Full-screen preset image** — `/cities/{id}.png`. **STATIC**. 0ms.
+- **City name + civilization** — Overlaid bottom-left. **STATIC** (from mock data).
+- **City TLDR** — 1-2 sentence description of what's happening here. **STATIC** (from mock data `description` field).
+- **Input field** — "What will you change?" at bottom. **STATIC** UI.
+- Submit → ripple animation → auto-advance to epoch 2.
 
-- `components/InterventionPanel.tsx`:
-  - Reduce vertical padding (`pt-16 pb-6` → `pt-8 pb-4`)
-  - Add `line-clamp-2` to region description
-  - Add slide-up entrance animation
-- `lib/store.ts`: Clear `selectedCity: null` in `submitIntervention` set() call so city panel auto-closes after intervention
+### City Click — Epochs 2-4 (text panel, no image)
+- **City name + civilization** — Panel header. **DYNAMIC** (from AI city data).
+- **City TLDR** — 1-2 sentences: what's happening in this city. **DYNAMIC** (from `city.description`).
+- **Causal note** — "Because you [previous decision], [this happened here]". **DYNAMIC** (from `city.causalNote`). This is the key connection between past decisions and current state.
+- **Tech level** — Visual dots. **DYNAMIC**.
+- **Nearby cities** — Navigation pills. **DYNAMIC**.
+- Intervention submitted via InterventionPanel at bottom.
+
+### Epoch 5 (goal screen)
+- **Final image** — AI-generated view of Earth at 4000 AD. **DYNAMIC** (pre-generated during epoch 4).
+- **Score** — 0-100. **DYNAMIC**.
+- **Analysis** — How the 4 decisions chained together. **DYNAMIC**.
+- **Play Again button** — **STATIC**.
+
+---
+
+## AI Prompt Requirements
+
+The intervention API prompt MUST instruct the AI to:
+
+1. **Reference the specific previous decision** in every city's `causalNote`. Not generic — must say "Because you [exact intervention text], [specific effect]."
+2. **Write a world narrative** (2-3 sentences) that summarizes the global state AND references how the previous decision(s) shaped it.
+3. **Include the goal context** — the AI should be aware the player is trying to reach interstellar travel, so its narrative can hint at progress/setbacks toward that goal.
+4. **Keep ALL text short** — city descriptions max 1 sentence, causal notes max 1 sentence, world narrative max 3 sentences. The user has ~30 seconds per epoch.
+
+---
+
+## File-by-File Changes
+
+### 1. `lib/types.ts`
+
+```typescript
+EPOCHS = [
+  { epoch: 1, startYear: -10000, endYear: -2000, name: "Dawn of Civilization" },
+  { epoch: 2, startYear: -2000,  endYear: 1,     name: "Bronze Age" },
+  { epoch: 3, startYear: 1,      endYear: 2000,  name: "Classical Era" },
+  { epoch: 4, startYear: 2000,   endYear: 4000,  name: "Modern Day" },
+  { epoch: 5, startYear: 4000,   endYear: 4000,  name: "The Future" },
+]
+```
+
+- `currentEpoch` type: `1|2|3|4|5`
+- Add `GameResult`: `{ score: number, summary: string, finalImageBase64: string | null, causalChain: string[] }`
+- Add `GOAL_STATE = "Achieve interstellar travel capability by 4000 AD"`
+
+### 2. `public/cities/` — Flatten image path
+
+- Move `public/cities/cities/*.png` → `public/cities/*.png`
+- 15 images, epoch 1 only
+
+### 3. `lib/mock-data.ts` — Add epochs 3 & 4, add epoch lookup
+
+- `MOCK_WORLD_STATE_1AD` — 12 cities: Rome, Alexandria, Chang'an, Antioch, Pataliputra, Carthage, Teotihuacan, Aksum, Luoyang, Petra, Londinium, Taxila
+- `MOCK_WORLD_STATE_2000AD` — 12 cities: New York, London, Tokyo, Beijing, Mumbai, Sao Paulo, Lagos, Dubai, Singapore, San Francisco, Moscow, Sydney
+- Trade routes and regions for each
+- Export `MOCK_DATA_BY_EPOCH: Record<number, WorldState>`
+
+### 4. `lib/store.ts` — New game flow
+
+- `interventionsRemaining = 1` (resets to 1 each epoch)
+- After intervention resolves: auto `currentEpoch++`, load mock data for new epoch, reset `interventionsRemaining = 1`
+- Epoch 5: no intervention, just display results
+- On epoch 4 completion: fire background `/api/score` call
+- Add `gameResult: GameResult | null` to state
+- `initWorld(epoch)` — loads `MOCK_DATA_BY_EPOCH[epoch]`, then background AI call to swap in real data
+- Optimistic update: immediately set year + modify nearby cities + set generic narrative
+
+### 5. `components/CityDetail.tsx` — Two modes
+
+**Epoch 1 (full-screen):**
+- `position: fixed; inset: 0; z-index: 40`
+- Background: `<img src="/cities/{city.id}.png" />` covering viewport
+- Gradient overlay for readability
+- Bottom section: city name (large), TLDR description, input field + submit button
+- On submit → calls `onSubmit(description, city.lat, city.lng)` → closes
+
+**Epochs 2-4 (right panel, text only):**
+- No image at all — just text
+- City name + civilization (header)
+- TLDR description (1 sentence)
+- Causal note referencing previous decision (amber, italic, left-border accent)
+- Tech dots
+- Nearby city pills
+
+### 6. `components/InterventionPanel.tsx`
+
+- Only visible when `currentEpoch >= 2 && currentEpoch <= 4 && zoomedIn`
+- Hidden epoch 1 (intervention built into CityDetail)
+- Hidden epoch 5 (results screen)
+
+### 7. `components/GoalScreen.tsx` — NEW
+
+- Full-screen overlay when `currentEpoch === 5`
+- Top: "Goal: Interstellar Travel by 4000 AD"
+- Center: AI-generated final image (or loading spinner)
+- Score: large number, color-coded
+- Analysis: 3-4 sentences from AI
+- Causal chain: list of 4 decisions with arrows
+- "Play Again" button
+
+### 8. `app/api/score/route.ts` — NEW
+
+- Input: `{ interventions, worldState, goal }`
+- 2 parallel Gemini calls:
+  - Scoring (gemini-2.5-flash, thinkingBudget: 2048): `{ score, summary, causalChain }`
+  - Final image (gemini-2.0-flash-preview-image-generation): base64 image
+- Returns `GameResult`
+
+### 9. `app/page.tsx` — Rewired flow
+
+- Remove "Next Epoch" button entirely
+- **Header**: epoch indicator + year + goal reminder + previous decisions as pills
+- **World TLDR**: `worldState.narrative` displayed as always-visible panel (top-left, not collapsible)
+- **Epoch 1 flow**: globe → click city → full-screen CityDetail (with embedded intervention input) → submit → ripple → auto-advance
+- **Epochs 2-4 flow**: globe → world TLDR visible → click city → text panel → InterventionPanel at bottom → submit → ripple → auto-advance
+- **Epoch 5**: render GoalScreen overlay
+- During epoch 4 intervention: fire `/api/score` in background so results are ready for epoch 5
+
+### 10. `lib/gemini.ts` — Updated prompts + new functions
+
+- `processIntervention` prompt updated:
+  - Include `GOAL_STATE` in context
+  - Require `causalNote` to reference the EXACT previous intervention text
+  - Require `worldNarrative` to mention progress toward goal
+  - All text kept short (1 sentence descriptions, 3 sentence narrative)
+- Add `generateScore(interventions, worldState, goal)` function
+- Add `generateFinalImage(worldState, goal)` function
+
+### 11. `components/NarrativePanel.tsx` — Simplify to world TLDR
+
+- Rename conceptually to "World TLDR"
+- Always visible (not collapsible) — just the narrative text
+- Remove TTS/audio UI (not needed for 2-3 min demo)
+- Show previous decisions as small list below narrative
+- Keep it compact: max 3 sentences of narrative
 
 ---
 
 ## Implementation Order
-1. Phase 1 (TTS fix) — standalone bug fix
-2. Phase 2 (intro overlay) — sets up real-API pattern
-3. Phase 3 (city detail) — independent UI enhancement
-4. Phase 4 (animations + summary) — builds on stable Phases 1-3
-5. Phase 5 (cleanup) — final polish
 
-## Verification
-- Run `npm run dev`, open http://localhost:3000
-- Verify intro card shows with real Gemini-generated world data and "Begin" button
-- Click a city → verify enriched right panel with causal notes and nearby cities
-- Zoom in → verify nearest city auto-selects
-- Submit an intervention → verify ripple with wave-band city scaling, milestone labels, and post-intervention summary toast
-- Verify TTS audio plays without console errors
-- Verify narration text is visible in the expanded narrative panel
+| Step | What | Files | Depends On |
+|------|------|-------|------------|
+| 1 | Types + epochs + goal constant | `lib/types.ts` | — |
+| 2 | Flatten city images | `public/cities/` | — |
+| 3 | Mock data for all 4 playable epochs | `lib/mock-data.ts` | Step 1 |
+| 4 | Store rewrite (1 per epoch, auto-advance, scoring) | `lib/store.ts` | Steps 1, 3 |
+| 5 | CityDetail: full-screen (ep1) + text (ep2-4) | `components/CityDetail.tsx` | Step 2 |
+| 6 | NarrativePanel → World TLDR (always visible) | `components/NarrativePanel.tsx` | — |
+| 7 | Page.tsx: new flow + previous decisions UI | `app/page.tsx` | Steps 4, 5, 6 |
+| 8 | GoalScreen component | `components/GoalScreen.tsx` | Step 1 |
+| 9 | Scoring API + gemini functions | `app/api/score/route.ts`, `lib/gemini.ts` | Step 1 |
+| 10 | Wire epoch 5 + background scoring into page | `app/page.tsx` | Steps 8, 9 |
+
+---
+
+## Latency Budget (2-3 min total game)
+
+| Action | Target | Source | Fallback |
+|--------|--------|--------|----------|
+| Page load | <1s | Mock data instant | — |
+| City click (epoch 1) | 0ms | Static .png from disk | — |
+| City click (epochs 2-4) | 0ms | Data already in store | — |
+| World TLDR visible | 0ms | `worldState.narrative` already loaded | Generic narrative |
+| Intervention submit | 0ms visual | Optimistic update + ripple | — |
+| Real AI result swap-in | ~10-15s | Background API | Keep optimistic state |
+| Epoch transition | 0ms | Mock data loads instantly | — |
+| Final image + score | Pre-generated | Started during epoch 4 | Loading spinner (max ~10s) |

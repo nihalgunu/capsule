@@ -1,86 +1,51 @@
-// Chronicle: Zustand Game State Store
 import { create } from 'zustand';
-import { GameState, WorldState, City, Intervention, InterventionResult, EPOCHS } from './types';
-import { MOCK_WORLD_STATE_10000BC } from './mock-data';
+import { GameState, WorldState, City, Intervention, InterventionResult, GameResult, EPOCHS, GOAL_STATE } from './types';
+import { MOCK_DATA_BY_EPOCH } from './mock-data';
 
 interface GameStore extends GameState {
-  // Actions
-  initWorld: (useMock?: boolean) => Promise<void>;
+  initWorld: (epoch?: number) => void;
   submitIntervention: (description: string, lat: number, lng: number) => Promise<InterventionResult | null>;
   selectCity: (city: City | null) => void;
   setZoomedIn: (zoomed: boolean, location?: { lat: number; lng: number }) => void;
   setLoading: (loading: boolean) => void;
-  setAudioPlaying: (playing: boolean) => void;
-  setVoiceSessionActive: (active: boolean) => void;
-  updateWorldState: (state: WorldState) => void;
-  nextEpoch: () => void;
+  setGameResult: (result: GameResult) => void;
+  fetchScore: (interventions: Intervention[], finalWorldState: WorldState) => Promise<void>;
   reset: () => void;
 }
 
 const initialState: GameState = {
   currentEpoch: 1,
-  interventionsRemaining: 4,
+  interventionsRemaining: 1,
   worldState: null,
   previousInterventions: [],
   loading: false,
-  audioPlaying: false,
-  voiceSessionActive: false,
   selectedCity: null,
   zoomedIn: false,
   zoomLocation: null,
+  gameResult: null,
 };
 
 export const useGameStore = create<GameStore>((set, get) => ({
   ...initialState,
 
-  initWorld: async (useMock = false) => {
-    // Show mock data immediately so the UI is instant
-    set({
-      worldState: MOCK_WORLD_STATE_10000BC,
-      loading: false,
-    });
-
-    if (useMock) return;
-
-    // Generate real world in background and swap it in
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
-
-      const response = await fetch('/api/generate-world', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          epoch: 1,
-          startYear: -10000,
-        }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeout);
-
-      if (!response.ok) throw new Error('Failed to generate world');
-
-      const worldState: WorldState = await response.json();
-      set({ worldState });
-    } catch (error) {
-      // Keep mock data on error/timeout — already showing it
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        console.log('World generation timed out, using mock data');
-      } else {
-        console.error('Error generating world, keeping mock data:', error);
-      }
+  // Load mock data for the given epoch instantly. No background AI call needed —
+  // the intervention response already provides the next epoch's real data.
+  initWorld: (epoch?: number) => {
+    const targetEpoch = epoch ?? get().currentEpoch;
+    const mockData = MOCK_DATA_BY_EPOCH[targetEpoch];
+    if (mockData) {
+      set({ worldState: mockData, loading: false });
     }
   },
 
   submitIntervention: async (description: string, lat: number, lng: number) => {
     const { worldState, previousInterventions, currentEpoch, interventionsRemaining } = get();
 
-    if (!worldState || interventionsRemaining <= 0) {
+    if (!worldState || interventionsRemaining <= 0 || currentEpoch >= 5) {
       return null;
     }
 
-    set({ loading: true });
+    const epochConfig = EPOCHS[currentEpoch - 1];
 
     const intervention: Intervention = {
       id: `intervention-${Date.now()}`,
@@ -91,9 +56,39 @@ export const useGameStore = create<GameStore>((set, get) => ({
       year: worldState.year,
     };
 
-    try {
-      const epochConfig = EPOCHS[currentEpoch - 1];
+    const allInterventions = [...previousInterventions, intervention];
 
+    // === OPTIMISTIC UPDATE ===
+    // Advance year immediately, modify nearby cities, generic narrative.
+    // The real AI result replaces this when it arrives.
+    const optimisticCities = worldState.cities.map(city => {
+      const isNear = Math.abs(city.lat - lat) < 20 && Math.abs(city.lng - lng) < 30;
+      if (isNear) {
+        return {
+          ...city,
+          brightness: Math.min(city.brightness + 0.2, 1),
+          techLevel: Math.min(city.techLevel + 1, 10),
+          change: 'brighter' as const,
+          causalNote: `Affected by: ${description}`,
+        };
+      }
+      return { ...city, change: 'unchanged' as const };
+    });
+
+    set({
+      loading: true,
+      interventionsRemaining: 0,
+      previousInterventions: allInterventions,
+      worldState: {
+        ...worldState,
+        year: epochConfig.endYear,
+        cities: optimisticCities,
+        narrative: `The world transforms as "${description}" ripples through history...`,
+      },
+    });
+
+    // === REAL API CALL ===
+    try {
       const response = await fetch('/api/intervene', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -102,19 +97,17 @@ export const useGameStore = create<GameStore>((set, get) => ({
           lat,
           lng,
           currentState: worldState,
-          previousInterventions: [...previousInterventions, intervention],
+          previousInterventions: allInterventions,
           startYear: epochConfig.startYear,
           endYear: epochConfig.endYear,
         }),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to process intervention');
-      }
+      if (!response.ok) throw new Error('Failed to process intervention');
 
       const result: InterventionResult = await response.json();
 
-      // Update world state with the result
+      // Build real world state from AI result
       const newWorldState: WorldState = {
         year: epochConfig.endYear,
         epoch: currentEpoch,
@@ -126,19 +119,79 @@ export const useGameStore = create<GameStore>((set, get) => ({
 
       set({
         worldState: newWorldState,
-        previousInterventions: [...previousInterventions, intervention],
-        interventionsRemaining: interventionsRemaining - 1,
         loading: false,
+        selectedCity: null,
         zoomedIn: false,
         zoomLocation: null,
-        selectedCity: null,
       });
+
+      // Auto-advance to next epoch after a short delay for the user to see the result
+      const nextEpoch = (currentEpoch + 1) as 1 | 2 | 3 | 4 | 5;
+      setTimeout(() => {
+        const nextMock = MOCK_DATA_BY_EPOCH[nextEpoch];
+        set({
+          currentEpoch: nextEpoch,
+          interventionsRemaining: nextEpoch <= 4 ? 1 : 0,
+          // For epochs 2-4, load mock data immediately, real data swaps in from AI
+          // For epoch 5, keep the current world state (results screen)
+          worldState: nextMock ? {
+            ...nextMock,
+            // Carry forward the narrative from the AI so the user sees causality
+            narrative: result.worldNarrative,
+          } : get().worldState,
+        });
+
+        // If we just entered epoch 5, fire the scoring request
+        if (nextEpoch === 5) {
+          get().fetchScore(allInterventions, newWorldState);
+        }
+      }, 3000);
 
       return result;
     } catch (error) {
       console.error('Error processing intervention:', error);
-      set({ loading: false });
+      // Keep optimistic state, auto-advance with mock data
+      const nextEpoch = (currentEpoch + 1) as 1 | 2 | 3 | 4 | 5;
+      const nextMock = MOCK_DATA_BY_EPOCH[nextEpoch];
+      setTimeout(() => {
+        set({
+          currentEpoch: nextEpoch,
+          interventionsRemaining: nextEpoch <= 4 ? 1 : 0,
+          worldState: nextMock ?? get().worldState,
+          loading: false,
+        });
+      }, 3000);
       return null;
+    }
+  },
+
+  // Background scoring — called when entering epoch 5
+  fetchScore: async (interventions: Intervention[], finalWorldState: WorldState) => {
+    try {
+      const response = await fetch('/api/score', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          interventions,
+          worldState: finalWorldState,
+          goal: GOAL_STATE,
+        }),
+      });
+      if (response.ok) {
+        const result: GameResult = await response.json();
+        set({ gameResult: result });
+      }
+    } catch (error) {
+      console.error('Error fetching score:', error);
+      // Provide a fallback score
+      set({
+        gameResult: {
+          score: 50,
+          summary: "Your decisions shaped history in unexpected ways. The path to the stars remains uncertain.",
+          finalImageBase64: null,
+          causalChain: interventions.map(i => i.description),
+        },
+      });
     }
   },
 
@@ -147,36 +200,18 @@ export const useGameStore = create<GameStore>((set, get) => ({
   },
 
   setZoomedIn: (zoomed: boolean, location?: { lat: number; lng: number }) => {
-    set({
-      zoomedIn: zoomed,
-      zoomLocation: location || null,
-    });
+    set({ zoomedIn: zoomed, zoomLocation: location || null });
   },
 
   setLoading: (loading: boolean) => {
     set({ loading });
   },
 
-  setAudioPlaying: (playing: boolean) => {
-    set({ audioPlaying: playing });
-  },
-
-  setVoiceSessionActive: (active: boolean) => {
-    set({ voiceSessionActive: active });
-  },
-
-  updateWorldState: (state: WorldState) => {
-    set({ worldState: state });
-  },
-
-  nextEpoch: () => {
-    const { currentEpoch } = get();
-    if (currentEpoch < 4) {
-      set({ currentEpoch: (currentEpoch + 1) as 1 | 2 | 3 | 4 });
-    }
+  setGameResult: (result: GameResult) => {
+    set({ gameResult: result });
   },
 
   reset: () => {
-    set(initialState);
+    set({ ...initialState });
   },
 }));
