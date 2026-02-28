@@ -1,0 +1,960 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Capsule — Consequence Modeling Engine</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+ --bg: #08080a;
+ --bg-raised: #0f0f12;
+ --bg-card: #141418;
+ --border: #222228;
+ --border-subtle: #1a1a1f;
+ --text: #f0f0f0;
+ --text-secondary: #9d9da6;
+ --text-muted: #5c5c66;
+ --accent: #f97316;
+ --accent-dim: rgba(249, 115, 22, 0.1);
+ --accent-glow: rgba(249, 115, 22, 0.04);
+ --green: #34d399;
+ --green-dim: rgba(52, 211, 153, 0.1);
+ --blue: #60a5fa;
+ --blue-dim: rgba(96, 165, 250, 0.1);
+ --font-sans: 'Instrument Sans', -apple-system, sans-serif;
+ --font-serif: 'Instrument Serif', Georgia, serif;
+ --font-mono: 'JetBrains Mono', monospace;
+}
+
+html {
+ scroll-behavior: smooth;
+ font-size: clamp(14px, 1.1vw, 16px);
+}
+
+body {
+ font-family: var(--font-sans);
+ background: var(--bg);
+ color: var(--text);
+ line-height: 1.6;
+ -webkit-font-smoothing: antialiased;
+ overflow-x: hidden;
+}
+
+body::before {
+ content: '';
+ position: fixed;
+ inset: 0;
+ background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E");
+ pointer-events: none;
+ z-index: 9999;
+}
+
+.container { max-width: 1000px; margin: 0 auto; padding: 0 clamp(16px, 4vw, 24px); }
+
+/* Nav */
+nav {
+ position: fixed;
+ top: 0; left: 0; right: 0;
+ z-index: 100;
+ padding: 14px 0;
+ background: rgba(8, 8, 10, 0.85);
+ backdrop-filter: blur(24px);
+ border-bottom: 1px solid var(--border-subtle);
+}
+
+nav .container {
+ display: flex;
+ align-items: center;
+ justify-content: space-between;
+ max-width: 1200px;
+}
+
+.nav-logo {
+ display: flex;
+ align-items: center;
+ gap: 10px;
+ text-decoration: none;
+ color: var(--text);
+}
+
+.nav-logo-mark {
+ width: 26px;
+ height: 26px;
+ border-radius: 6px;
+ background: var(--accent);
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ font-size: 13px;
+ font-weight: 700;
+ color: #000;
+}
+
+.nav-logo-text { font-weight: 600; font-size: 15px; letter-spacing: -0.02em; }
+
+.nav-right {
+ display: flex;
+ align-items: center;
+ gap: 24px;
+}
+
+.nav-right a {
+ color: var(--text-muted);
+ text-decoration: none;
+ font-size: 13.5px;
+ font-weight: 500;
+ transition: color 0.2s;
+}
+
+.nav-right a:hover { color: var(--text-secondary); }
+
+.btn-nav-gh {
+ display: inline-flex;
+ align-items: center;
+ gap: 7px;
+ padding: 7px 14px;
+ border-radius: 7px;
+ font-size: 13px;
+ font-weight: 600;
+ color: var(--bg);
+ background: var(--text);
+ text-decoration: none;
+ transition: background 0.2s;
+}
+
+.btn-nav-gh:hover { background: #d4d4d8; }
+
+.btn-nav-gh svg { width: 14px; height: 14px; }
+
+/* Hero */
+.hero {
+ padding: clamp(120px, 15vw, 180px) 0 clamp(60px, 8vw, 100px);
+ position: relative;
+ overflow: hidden;
+}
+
+.hero-grid-bg {
+ position: absolute;
+ inset: 0;
+ background-image:
+ linear-gradient(rgba(249, 115, 22, 0.03) 1px, transparent 1px),
+ linear-gradient(90deg, rgba(249, 115, 22, 0.03) 1px, transparent 1px);
+ background-size: 60px 60px;
+ mask-image: radial-gradient(ellipse 60% 50% at 50% 40%, black 20%, transparent 70%);
+ -webkit-mask-image: radial-gradient(ellipse 60% 50% at 50% 40%, black 20%, transparent 70%);
+}
+
+.hero-ripples {
+ position: absolute;
+ top: 30%;
+ left: 50%;
+ transform: translate(-50%, -50%);
+ pointer-events: none;
+}
+
+.hero-ripple {
+ position: absolute;
+ top: 50%; left: 50%;
+ transform: translate(-50%, -50%);
+ border: 1px solid rgba(249, 115, 22, 0.06);
+ border-radius: 50%;
+ animation: ripple 5s ease-out infinite;
+}
+
+.hero-ripple:nth-child(1) { animation-delay: 0s; }
+.hero-ripple:nth-child(2) { animation-delay: 1.25s; }
+.hero-ripple:nth-child(3) { animation-delay: 2.5s; }
+.hero-ripple:nth-child(4) { animation-delay: 3.75s; }
+
+@keyframes ripple {
+ 0% { width: 40px; height: 40px; opacity: 0.8; }
+ 100% { width: 900px; height: 900px; opacity: 0; }
+}
+
+.hero-content {
+ position: relative;
+ z-index: 1;
+}
+
+.hero-eyebrow {
+ font-family: var(--font-mono);
+ font-size: 12px;
+ font-weight: 500;
+ color: var(--accent);
+ letter-spacing: 0.12em;
+ text-transform: uppercase;
+ margin-bottom: 28px;
+ animation: fadeIn 0.5s ease;
+}
+
+.hero h1 {
+ font-size: clamp(44px, 6.5vw, 76px);
+ font-weight: 700;
+ line-height: 1.02;
+ letter-spacing: -0.04em;
+ margin-bottom: 28px;
+ animation: fadeIn 0.5s ease 0.1s both;
+}
+
+.hero h1 em {
+ font-family: var(--font-serif);
+ font-style: italic;
+ font-weight: 400;
+ color: var(--accent);
+}
+
+.hero-description {
+ font-size: 17px;
+ color: var(--text-secondary);
+ max-width: 500px;
+ line-height: 1.7;
+ margin-bottom: 44px;
+ animation: fadeIn 0.5s ease 0.2s both;
+}
+
+.hero-actions {
+ display: flex;
+ align-items: center;
+ gap: 16px;
+ animation: fadeIn 0.5s ease 0.3s both;
+}
+
+
+.btn-hero {
+ display: inline-flex;
+ align-items: center;
+ gap: 8px;
+ padding: 12px 24px;
+ border-radius: 9px;
+ font-size: 14px;
+ font-weight: 600;
+ text-decoration: none;
+ transition: all 0.2s;
+ cursor: pointer;
+ border: none;
+}
+
+.btn-hero-primary {
+ color: #000;
+ background: var(--text);
+}
+
+.btn-hero-primary:hover { background: #d4d4d8; }
+
+.btn-hero-ghost {
+ color: var(--text-secondary);
+ background: transparent;
+ border: 1px solid var(--border);
+}
+
+.btn-hero-ghost:hover { color: var(--text); border-color: var(--text-muted); }
+
+/* Divider */
+.divider {
+ height: 1px;
+ background: var(--border-subtle);
+ margin: 0;
+}
+
+/* Narrative */
+.narrative {
+ padding: clamp(60px, 10vw, 120px) 0;
+}
+
+.narrative-flow {
+ display: flex;
+ flex-direction: column;
+ gap: clamp(48px, 6vw, 72px);
+}
+
+.narrative-block {
+ display: grid;
+ grid-template-columns: 160px 1fr;
+ gap: 48px;
+ align-items: start;
+}
+
+.narrative-label {
+ font-family: var(--font-mono);
+ font-size: 11px;
+ font-weight: 600;
+ color: var(--text-muted);
+ text-transform: uppercase;
+ letter-spacing: 0.1em;
+ padding-top: 6px;
+ position: sticky;
+ top: 100px;
+}
+
+.narrative-text h2 {
+ font-size: 28px;
+ font-weight: 600;
+ letter-spacing: -0.025em;
+ line-height: 1.3;
+ margin-bottom: 16px;
+}
+
+.narrative-text h2 em {
+ font-family: var(--font-serif);
+ font-style: italic;
+ font-weight: 400;
+ color: var(--accent);
+}
+
+.narrative-text p {
+ font-size: 15.5px;
+ color: var(--text-secondary);
+ line-height: 1.75;
+ max-width: 560px;
+}
+
+.narrative-text p + p {
+ margin-top: 16px;
+}
+
+/* Sequence */
+.sequence {
+ padding: clamp(60px, 8vw, 100px) 0 clamp(80px, 10vw, 120px);
+ position: relative;
+}
+
+.sequence-header {
+ margin-bottom: clamp(48px, 6vw, 72px);
+ text-align: center;
+}
+
+.sequence-header h2 {
+ font-size: clamp(28px, 4vw, 36px);
+ font-weight: 700;
+ letter-spacing: -0.03em;
+ margin-bottom: 12px;
+}
+
+.sequence-header p {
+ font-size: 15.5px;
+ color: var(--text-secondary);
+}
+
+.sequence-timeline {
+ position: relative;
+ display: flex;
+ flex-direction: column;
+ gap: 0;
+}
+
+.sequence-timeline::before {
+ content: '';
+ position: absolute;
+ left: 28px;
+ top: 50px;
+ bottom: 50px;
+ width: 2px;
+ background: linear-gradient(to bottom, var(--accent), var(--border-subtle) 40%, var(--border-subtle) 60%, var(--green));
+}
+
+.seq-step {
+ display: grid;
+ grid-template-columns: 56px 1fr;
+ gap: 40px;
+ align-items: start;
+ padding: 40px 0;
+}
+
+.seq-dot-wrap {
+ display: flex;
+ justify-content: center;
+ padding-top: 6px;
+}
+
+.seq-dot {
+ width: 18px;
+ height: 18px;
+ border-radius: 50%;
+ border: 3px solid var(--accent);
+ background: var(--bg);
+ position: relative;
+ z-index: 1;
+}
+
+.seq-step:last-child .seq-dot {
+ border-color: var(--green);
+}
+
+.seq-step:nth-child(2) .seq-dot,
+.seq-step:nth-child(3) .seq-dot {
+ border-color: var(--text-muted);
+}
+
+.seq-content h3 {
+ font-size: clamp(20px, 2vw, 24px);
+ font-weight: 600;
+ letter-spacing: -0.02em;
+ margin-bottom: 12px;
+}
+
+.seq-content p {
+ font-size: clamp(14px, 1.3vw, 16px);
+ color: var(--text-muted);
+ line-height: 1.7;
+ max-width: 100%;
+}
+
+.seq-tag {
+ display: inline-block;
+ font-family: var(--font-mono);
+ font-size: 12px;
+ font-weight: 500;
+ padding: 6px 12px;
+ border-radius: 6px;
+ margin-top: 16px;
+}
+
+.seq-tag-orange { color: var(--accent); background: var(--accent-dim); }
+.seq-tag-green { color: var(--green); background: var(--green-dim); }
+.seq-tag-blue { color: var(--blue); background: var(--blue-dim); }
+
+/* Applications */
+.applications {
+ padding: clamp(60px, 10vw, 120px) 0;
+}
+
+.applications h2 {
+ font-size: clamp(28px, 4vw, 36px);
+ font-weight: 700;
+ letter-spacing: -0.03em;
+ margin-bottom: 12px;
+}
+
+.applications > .container > p {
+ font-size: 15.5px;
+ color: var(--text-secondary);
+ margin-bottom: clamp(32px, 5vw, 56px);
+}
+
+.apps-marquee {
+ display: flex;
+ gap: 12px;
+ flex-wrap: wrap;
+}
+
+.app-pill {
+ padding: 14px 24px;
+ border-radius: 100px;
+ border: 1px solid var(--border);
+ background: var(--bg-raised);
+ font-size: 14px;
+ font-weight: 500;
+ color: var(--text-secondary);
+ cursor: default;
+ transition: all 0.3s;
+ white-space: nowrap;
+}
+
+.app-pill:hover {
+ border-color: var(--accent);
+ color: var(--text);
+ background: var(--accent-dim);
+}
+
+.app-pill-active {
+ border-color: var(--accent);
+ color: var(--accent);
+ background: var(--accent-dim);
+}
+
+.apps-dual {
+ display: grid;
+ grid-template-columns: repeat(2, 1fr);
+ gap: 48px;
+}
+
+.apps-column-header {
+ margin-bottom: 20px;
+}
+
+.apps-column-header h3 {
+ font-size: 18px;
+ font-weight: 600;
+ letter-spacing: -0.01em;
+}
+
+/* Benchmark */
+.benchmark {
+ padding: clamp(60px, 10vw, 120px) 0;
+ position: relative;
+}
+
+.benchmark::before {
+ content: '';
+ position: absolute;
+ top: 0;
+ left: 0;
+ right: 0;
+ height: 1px;
+ background: linear-gradient(90deg, transparent, var(--accent), transparent);
+}
+
+.benchmark-header {
+ margin-bottom: clamp(40px, 5vw, 64px);
+ text-align: center;
+}
+
+.benchmark-header .section-eyebrow {
+ font-family: var(--font-mono);
+ font-size: 12px;
+ font-weight: 600;
+ color: var(--accent);
+ letter-spacing: 0.1em;
+ text-transform: uppercase;
+ margin-bottom: 20px;
+}
+
+.benchmark-header h2 {
+ font-size: clamp(32px, 5vw, 44px);
+ font-weight: 700;
+ letter-spacing: -0.035em;
+ line-height: 1.1;
+ margin-bottom: 16px;
+}
+
+.benchmark-header h2 em {
+ font-family: var(--font-serif);
+ font-style: italic;
+ font-weight: 400;
+}
+
+.benchmark-header p {
+ font-size: 16px;
+ color: var(--text-secondary);
+ max-width: 540px;
+ line-height: 1.7;
+ margin: 0 auto;
+}
+
+.bench-dimensions {
+ display: grid;
+ grid-template-columns: repeat(2, 1fr);
+ gap: 1px;
+ background: var(--border-subtle);
+ border: 1px solid var(--border-subtle);
+ border-radius: 14px;
+ overflow: hidden;
+ margin-bottom: 64px;
+}
+
+.bench-dim {
+ background: var(--bg);
+ padding: 32px;
+}
+
+.bench-dim h3 {
+ font-size: 15px;
+ font-weight: 600;
+ margin-bottom: 6px;
+ letter-spacing: -0.01em;
+}
+
+.bench-dim p {
+ font-size: 13.5px;
+ color: var(--text-muted);
+ line-height: 1.55;
+}
+
+.bench-tiers {
+ display: grid;
+ grid-template-columns: repeat(3, 1fr);
+ gap: 16px;
+}
+
+.bench-tier {
+ background: var(--bg-raised);
+ border: 1px solid var(--border);
+ border-radius: 12px;
+ padding: 28px;
+ transition: border-color 0.3s;
+}
+
+.bench-tier:hover { border-color: var(--text-muted); }
+
+.bench-tier-label {
+ font-family: var(--font-mono);
+ font-size: 11px;
+ font-weight: 600;
+ text-transform: uppercase;
+ letter-spacing: 0.08em;
+ margin-bottom: 16px;
+}
+
+.tier-1 .bench-tier-label { color: var(--green); }
+.tier-2 .bench-tier-label { color: var(--accent); }
+.tier-3 .bench-tier-label { color: #a78bfa; }
+
+.bench-tier-task {
+ font-size: 14px;
+ color: var(--text-secondary);
+ line-height: 1.7;
+ padding: 8px 0;
+ border-bottom: 1px solid var(--border-subtle);
+}
+
+.bench-tier-task:last-child { border-bottom: none; }
+
+/* Footer CTA */
+.footer-cta {
+ padding: clamp(60px, 8vw, 100px) 0 clamp(80px, 12vw, 140px);
+ text-align: center;
+ position: relative;
+}
+
+.footer-cta::before {
+ content: '';
+ position: absolute;
+ bottom: 0;
+ left: 50%;
+ transform: translateX(-50%);
+ width: 600px;
+ height: 300px;
+ background: radial-gradient(circle, var(--accent-glow) 0%, transparent 70%);
+ pointer-events: none;
+}
+
+.footer-cta h2 {
+ font-size: clamp(28px, 4vw, 40px);
+ font-weight: 700;
+ letter-spacing: -0.03em;
+ margin-bottom: 16px;
+}
+
+.footer-cta h2 em {
+ font-family: var(--font-serif);
+ font-style: italic;
+ font-weight: 400;
+ color: var(--accent);
+}
+
+.footer-cta p {
+ font-size: 15px;
+ color: var(--text-secondary);
+ margin-bottom: 36px;
+}
+
+.footer-cta-actions {
+ display: flex;
+ align-items: center;
+ justify-content: center;
+ gap: 16px;
+}
+
+/* Footer */
+footer {
+ border-top: 1px solid var(--border-subtle);
+ padding: 32px 0;
+}
+
+.footer-inner {
+ display: flex;
+ align-items: center;
+ justify-content: space-between;
+}
+
+.footer-meta {
+ font-size: 12.5px;
+ color: var(--text-muted);
+}
+
+.footer-links {
+ display: flex;
+ gap: 20px;
+ list-style: none;
+}
+
+.footer-links a {
+ font-size: 12.5px;
+ color: var(--text-muted);
+ text-decoration: none;
+ transition: color 0.2s;
+}
+
+.footer-links a:hover { color: var(--text-secondary); }
+
+/* Animations */
+@keyframes fadeIn {
+ from { opacity: 0; transform: translateY(12px); }
+ to { opacity: 1; transform: translateY(0); }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+ .narrative-block { grid-template-columns: 1fr; gap: 12px; }
+ .narrative-label { position: static; }
+ .bench-dimensions { grid-template-columns: 1fr; }
+ .bench-tiers { grid-template-columns: 1fr; }
+ .apps-dual { grid-template-columns: 1fr; gap: 40px; }
+ .hero { padding: 150px 0 80px; }
+ .hero-actions { flex-direction: column; align-items: flex-start; }
+ .footer-cta-actions { flex-direction: column; }
+ .footer-inner { flex-direction: column; gap: 12px; }
+ .nav-right a:not(.btn-nav-gh) { display: none; }
+}
+</style>
+</head>
+<body>
+
+<nav>
+ <div class="container">
+ <a href="#" class="nav-logo">
+ <div class="nav-logo-mark">C</div>
+ <span class="nav-logo-text">Capsule</span>
+ </a>
+ <div class="nav-right">
+ <a href="#how">How it Works</a>
+ <a href="#benchmark">Benchmark</a>
+ <a href="#applications">Applications</a>
+ <a href="https://github.com/nihalgunu/capsule" class="btn-nav-gh" target="_blank">
+ <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+ GitHub
+ </a>
+ </div>
+ </div>
+</nav>
+
+<section class="hero">
+ <div class="hero-grid-bg"></div>
+ <div class="hero-ripples">
+ <div class="hero-ripple"></div>
+ <div class="hero-ripple"></div>
+ <div class="hero-ripple"></div>
+ <div class="hero-ripple"></div>
+ </div>
+ <div class="container hero-content">
+ <div class="hero-eyebrow">Consequence Modeling Engine &middot; Built on Gemini</div>
+ <h1>Trace every <em>ripple.</em><br>Predict every <em>cascade.</em></h1>
+ <p class="hero-description">Capsule is an open-source engine that uses Gemini's 1M token context to model complex systems where interventions ripple through time with full causal traceability. From alternate history games to enterprise forecasting.</p>
+ <div class="hero-actions">
+ <a href="https://capsule-steel.vercel.app" class="btn-hero btn-hero-primary" target="_blank">
+ Play Chronicle &rarr;
+ </a>
+ <a href="https://github.com/nihalgunu/capsule" class="btn-hero btn-hero-ghost" target="_blank">
+ <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+ View on GitHub
+ </a>
+ </div>
+ </div>
+</section>
+
+<div class="container"><div class="divider"></div></div>
+
+<section class="narrative">
+ <div class="container">
+ <div class="narrative-flow">
+
+ <div class="narrative-block">
+ <div class="narrative-label">The Problem</div>
+ <div class="narrative-text">
+ <h2>Complex systems are <em>impossible to reason about</em></h2>
+ <p>What happens if we raise interest rates? If a supplier fails? If we change this policy? Traditional models are brittle—they capture first-order effects but miss the cascades. The real world is interconnected. Every action has consequences that ripple outward in ways that spreadsheets can't predict.</p>
+ <p>We needed a new approach: systems that model causal chains, trace ripple effects, and explain every consequence.</p>
+ </div>
+ </div>
+
+ <div class="narrative-block">
+ <div class="narrative-label">The Breakthrough</div>
+ <div class="narrative-text">
+ <h2>Gemini's 1M token context changes <em>everything</em></h2>
+ <p>With a million tokens of context, an entire system state fits in memory. Every variable. Every relationship. Every historical precedent. The model doesn't just respond—it reasons about complex systems where past actions shape present reality.</p>
+ <p>Supply chains adapt to disruption. Markets respond to intervention. Resources flow and deplete. Consequences cascade with full traceability.</p>
+ </div>
+ </div>
+
+ <div class="narrative-block">
+ <div class="narrative-label">Chronicle</div>
+ <div class="narrative-text">
+ <h2>Our demo: <em>rewrite 6,000 years of history</em></h2>
+ <p>To prove the engine works, we built Chronicle—an alternate history game. Zoom into any point on a 3D globe. Make a change—"Rome never falls," "The printing press is invented in China"—and watch consequences ripple across continents and millennia.</p>
+ <p>History is familiar terrain. Everyone intuitively understands cause and effect across time. It makes the engine's power tangible. If it can model civilization, it can model your supply chain.</p>
+ </div>
+ </div>
+
+ </div>
+ </div>
+</section>
+
+<div class="container"><div class="divider"></div></div>
+
+<section class="sequence" id="how">
+ <div class="container">
+ <div class="sequence-header">
+ <h2>How it works</h2>
+ <p>Input an intervention. Trace the consequences.</p>
+ </div>
+
+ <div class="sequence-timeline">
+ <div class="seq-step">
+ <div class="seq-dot-wrap"><div class="seq-dot"></div></div>
+ <div class="seq-content">
+ <h3>Define initial state</h3>
+ <p>Load a world state into the engine—historical timeline, supply chain network, economic model, game world. The full context fits in Gemini's 1M token window.</p>
+ <span class="seq-tag seq-tag-orange">1M token context</span>
+ </div>
+ </div>
+ <div class="seq-step">
+ <div class="seq-dot-wrap"><div class="seq-dot"></div></div>
+ <div class="seq-content">
+ <h3>Apply an intervention</h3>
+ <p>Make a change. "Rome never falls." "Supplier X goes offline." "Interest rates rise 2%." The engine accepts natural language inputs.</p>
+ <span class="seq-tag seq-tag-blue">natural language</span>
+ </div>
+ </div>
+ <div class="seq-step">
+ <div class="seq-dot-wrap"><div class="seq-dot"></div></div>
+ <div class="seq-content">
+ <h3>Watch consequences cascade</h3>
+ <p>The engine traces causal chains through the system. First-order effects, second-order ripples, emergent outcomes. Everything updates coherently.</p>
+ <span class="seq-tag seq-tag-orange">causal reasoning</span>
+ </div>
+ </div>
+ <div class="seq-step">
+ <div class="seq-dot-wrap"><div class="seq-dot"></div></div>
+ <div class="seq-content">
+ <h3>Trace any outcome</h3>
+ <p>Click any changed element to see why it changed. Full causal chain from your intervention to this specific consequence. Complete explainability.</p>
+ <span class="seq-tag seq-tag-green">full traceability</span>
+ </div>
+ </div>
+ </div>
+ </div>
+</section>
+
+<div class="container"><div class="divider"></div></div>
+
+<section class="applications" id="applications">
+ <div class="container">
+ <h2>Two markets. One engine.</h2>
+ <p>The same causal reasoning that powers alternate history games can forecast supply chain disruptions.</p>
+
+ <div class="apps-dual">
+ <div class="apps-column">
+ <div class="apps-column-header">
+ <h3>Gaming & Entertainment</h3>
+ </div>
+ <div class="apps-marquee">
+ <div class="app-pill app-pill-active">Alternate History</div>
+ <div class="app-pill">Fantasy RPGs</div>
+ <div class="app-pill">City Builders</div>
+ <div class="app-pill">Economic Sims</div>
+ <div class="app-pill">Emergent Narratives</div>
+ </div>
+ </div>
+ <div class="apps-column">
+ <div class="apps-column-header">
+ <h3>Enterprise & Research</h3>
+ </div>
+ <div class="apps-marquee">
+ <div class="app-pill">Supply Chain Modeling</div>
+ <div class="app-pill">Scenario Planning</div>
+ <div class="app-pill">Risk Assessment</div>
+ <div class="app-pill">Policy Simulation</div>
+ <div class="app-pill">Market Forecasting</div>
+ </div>
+ </div>
+ </div>
+ </div>
+</section>
+
+<div class="container"><div class="divider"></div></div>
+
+<section class="benchmark" id="benchmark">
+ <div class="container">
+ <div class="benchmark-header">
+ <div class="section-eyebrow">Causal Benchmark</div>
+ <h2>Measuring <em>consequence reasoning</em><br>at scale</h2>
+ <p>We built Chronicle as a benchmark for causal tracing. Given a target outcome, find the minimal interventions that make it inevitable. Every prediction is scored against the engine's full causal graph.</p>
+ </div>
+
+ <div class="bench-dimensions">
+ <div class="bench-dim">
+ <h3>Causal Coherence</h3>
+ <p>Every consequence logically follows from its causes. Full chain-of-thought reasoning, no black boxes.</p>
+ </div>
+ <div class="bench-dim">
+ <h3>Intervention Efficiency</h3>
+ <p>Find minimal changes that cascade into target outcomes. Measures the engine's grasp of leverage points.</p>
+ </div>
+ <div class="bench-dim">
+ <h3>Domain Grounding</h3>
+ <p>Predictions stay plausible within domain constraints. No impossible leaps or broken physics.</p>
+ </div>
+ <div class="bench-dim">
+ <h3>N-th Order Effects</h3>
+ <p>Traces second, third, and higher-order consequences. The depth enterprises need for real forecasting.</p>
+ </div>
+ <div class="bench-dim">
+ <h3>Explainability</h3>
+ <p>Every prediction comes with a full causal trace. Audit why any outcome occurred.</p>
+ </div>
+ <div class="bench-dim">
+ <h3>Reproducibility</h3>
+ <p>Same inputs, same causal graph. Deterministic reasoning for enterprise reliability.</p>
+ </div>
+ </div>
+
+ <div class="bench-tiers">
+ <div class="bench-tier tier-1">
+ <div class="bench-tier-label">Chronicle Challenges</div>
+ <div class="bench-tier-task">Achieve powered flight by 1000 AD</div>
+ <div class="bench-tier-task">Roman Empire persists through 2000 AD</div>
+ <div class="bench-tier-task">Global literacy above 80% by 1500 AD</div>
+ </div>
+ <div class="bench-tier tier-2">
+ <div class="bench-tier-label">Enterprise Examples</div>
+ <div class="bench-tier-task">Supplier fails → trace impact to all downstream products</div>
+ <div class="bench-tier-task">Policy change → model economic ripple effects</div>
+ <div class="bench-tier-task">Market shock → forecast recovery scenarios</div>
+ </div>
+ <div class="bench-tier tier-3">
+ <div class="bench-tier-label">Why It Matters</div>
+ <div class="bench-tier-task">Same engine, same causal reasoning</div>
+ <div class="bench-tier-task">Chronicle proves it works on history</div>
+ <div class="bench-tier-task">Enterprise applies it to your domain</div>
+ </div>
+ </div>
+ </div>
+</section>
+
+<div class="container"><div class="divider"></div></div>
+
+<section class="footer-cta">
+ <div class="container">
+ <h2>Model the <em>consequences</em></h2>
+ <p>Open source engine. Play Chronicle or build your own applications.</p>
+ <div class="footer-cta-actions">
+ <a href="https://capsule-steel.vercel.app" class="btn-hero btn-hero-primary" target="_blank">
+ Play Chronicle &rarr;
+ </a>
+ <a href="https://github.com/nihalgunu/capsule" class="btn-hero btn-hero-ghost" target="_blank">
+ <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+ Star on GitHub
+ </a>
+ </div>
+ </div>
+</section>
+
+<footer>
+ <div class="container">
+ <div class="footer-inner">
+ <span class="footer-meta">Capsule &middot; MIT License</span>
+ <ul class="footer-links">
+ <li><a href="https://github.com/nihalgunu/capsule" target="_blank">GitHub</a></li>
+ <li><a href="#benchmark">Benchmark</a></li>
+ <li><a href="#how">Docs</a></li>
+ </ul>
+ </div>
+ </div>
+</footer>
+
+</body>
+</html>

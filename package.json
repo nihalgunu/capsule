@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:landing": "npx serve landing-page -l 3001",
+    "dev:all": "npx concurrently \"next dev\" \"npx serve landing-page -l 3001\"",
     "build": "next build",
     "start": "next start",
     "lint": "eslint"

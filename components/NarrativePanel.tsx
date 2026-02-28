@@ -1,52 +1,82 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { Intervention, formatYear, GOAL_STATE } from '@/lib/types';
 
 interface NarrativePanelProps {
   narrative: string;
   previousInterventions: Intervention[];
   currentEpoch: number;
+  onNarrationChange?: (isNarrating: boolean) => void;
 }
 
 export default function NarrativePanel({
   narrative,
   previousInterventions,
   currentEpoch,
+  onNarrationChange,
 }: NarrativePanelProps) {
   const [muted, setMuted] = useState(false);
   const lastNarrativeRef = useRef('');
-  const hasSpokenRef = useRef(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
 
-  // TTS: speak new narrative on epoch transitions
+  const stopAudio = useCallback(() => {
+    if (abortRef.current) abortRef.current.abort();
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.src = '';
+      audioRef.current = null;
+    }
+    onNarrationChange?.(false);
+  }, [onNarrationChange]);
+
+  // TTS: speak new narrative via Gemini
   useEffect(() => {
-    if (typeof window === 'undefined' || !window.speechSynthesis) return;
     if (muted) return;
     if (!narrative || narrative === lastNarrativeRef.current) return;
-
-    // Don't speak the initial load narrative or optimistic "ripples through history" text
     if (narrative.includes('ripples through history')) return;
 
     lastNarrativeRef.current = narrative;
+    stopAudio();
 
-    // Cancel any ongoing speech
-    window.speechSynthesis.cancel();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
-    const utterance = new SpeechSynthesisUtterance(narrative);
-    utterance.rate = 1.1;
-    utterance.pitch = 0.9;
-    utterance.volume = 0.8;
-    window.speechSynthesis.speak(utterance);
-  }, [narrative, muted]);
+    fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: narrative }),
+      signal: controller.signal,
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('TTS failed');
+        return res.blob();
+      })
+      .then(blob => {
+        if (controller.signal.aborted) return;
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.volume = 0.8;
+        audioRef.current = audio;
+        onNarrationChange?.(true);
+        audio.onended = () => {
+          URL.revokeObjectURL(url);
+          onNarrationChange?.(false);
+        };
+        audio.play().catch(() => { onNarrationChange?.(false); });
+      })
+      .catch(err => {
+        if (err.name !== 'AbortError') {
+          console.warn('TTS error, falling back silent:', err);
+        }
+      });
+  }, [narrative, muted, stopAudio]);
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => {
-      if (typeof window !== 'undefined' && window.speechSynthesis) {
-        window.speechSynthesis.cancel();
-      }
-    };
-  }, []);
+    return () => stopAudio();
+  }, [stopAudio]);
 
   return (
     <div className="absolute top-20 left-6 max-w-sm z-10">
@@ -66,9 +96,7 @@ export default function NarrativePanel({
           <button
             onClick={() => {
               setMuted(m => !m);
-              if (!muted && typeof window !== 'undefined') {
-                window.speechSynthesis.cancel();
-              }
+              if (!muted) stopAudio();
             }}
             className="shrink-0 p-1.5 text-gray-500 hover:text-amber-400 transition-colors"
             title={muted ? 'Unmute narration' : 'Mute narration'}

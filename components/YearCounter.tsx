@@ -34,6 +34,14 @@ export default function YearCounter({
       return;
     }
 
+    // If API already resolved, snap immediately to target
+    if (apiResolved) {
+      if (frameRef.current) cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+      setDisplayYear(targetYear);
+      return;
+    }
+
     // Starting animation — capture start year and time
     if (animStartRef.current === null) {
       animStartRef.current = Date.now();
@@ -44,30 +52,10 @@ export default function YearCounter({
     const totalRange = targetYear - startYear;
     if (totalRange === 0) return;
 
-    // Asymptotic animation: approaches ~90% over ~30s, never reaches target until API resolves
-    const TAU = 25000; // time constant in ms
+    const TAU = 25000;
 
     const animate = () => {
       const elapsed = Date.now() - (animStartRef.current || Date.now());
-
-      if (apiResolved) {
-        // API resolved — quickly finish animation over 800ms
-        const finishStart = Date.now();
-        const currentDisplay = displayYear;
-        const finishAnimate = () => {
-          const finishElapsed = Date.now() - finishStart;
-          const finishProgress = Math.min(finishElapsed / 800, 1);
-          const eased = 1 - Math.pow(1 - finishProgress, 3);
-          setDisplayYear(Math.round(currentDisplay + (targetYear - currentDisplay) * eased));
-          if (finishProgress < 1) {
-            frameRef.current = requestAnimationFrame(finishAnimate);
-          }
-        };
-        frameRef.current = requestAnimationFrame(finishAnimate);
-        return;
-      }
-
-      // Asymptotic approach — never quite reaches target
       const progress = 1 - Math.exp(-elapsed / TAU);
       const newYear = Math.round(startYear + totalRange * progress * 0.92);
       setDisplayYear(newYear);
@@ -81,26 +69,14 @@ export default function YearCounter({
     };
   }, [isAnimating, targetYear, apiResolved]);
 
-  // When apiResolved changes to true, trigger the finish animation
+  // When apiResolved flips to true, immediately snap to target
   useEffect(() => {
-    if (apiResolved && isAnimating && targetYear) {
-      const currentDisplay = displayYear;
-      const startTime = Date.now();
-
+    if (apiResolved && targetYear !== undefined) {
       if (frameRef.current) cancelAnimationFrame(frameRef.current);
-
-      const finishAnimate = () => {
-        const elapsed = Date.now() - startTime;
-        const progress = Math.min(elapsed / 800, 1);
-        const eased = 1 - Math.pow(1 - progress, 3);
-        setDisplayYear(Math.round(currentDisplay + (targetYear - currentDisplay) * eased));
-        if (progress < 1) {
-          frameRef.current = requestAnimationFrame(finishAnimate);
-        }
-      };
-      frameRef.current = requestAnimationFrame(finishAnimate);
+      frameRef.current = null;
+      setDisplayYear(targetYear);
     }
-  }, [apiResolved]);
+  }, [apiResolved, targetYear]);
 
   // Snap to year when it changes externally (epoch transitions)
   useEffect(() => {

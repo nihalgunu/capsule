@@ -27,50 +27,50 @@ export default function GoalScreen({ result, chosenCity, onPlayAgain }: GoalScre
           <img
             src={`data:image/png;base64,${result.finalImageBase64}`}
             alt="Earth at 4000 AD"
-            className="absolute inset-0 w-full h-full object-cover opacity-40"
+            className="absolute inset-0 w-full h-full object-cover opacity-30 blur-[2px]"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/60 to-black/40" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black via-black/70 to-black/50" />
         </>
       )}
 
-      {/* Content — centered, compact, no scroll */}
-      <div className="relative z-10 text-center max-w-lg px-6 flex flex-col items-center">
+      {/* Content */}
+      <div className="relative z-10 text-center max-w-md px-6 flex flex-col items-center gap-6">
         {/* City journey header */}
         {chosenCity && (
-          <>
-            <p className="text-gray-400 text-sm mb-1">Your journey began in</p>
-            <h1 className="text-3xl font-bold text-white mb-4 drop-shadow-lg">{chosenCity.name}</h1>
-          </>
+          <div className="flex flex-col items-center gap-1">
+            <p className="text-white/50 text-xs tracking-[0.2em] uppercase">Your journey began in</p>
+            <h1 className="text-4xl font-light tracking-tight text-white">{chosenCity.name}</h1>
+          </div>
         )}
 
         {/* Score */}
         {hasScore ? (
-          <>
-            <div className={`border ${scoreBorder} rounded-2xl px-10 py-6 mb-4 backdrop-blur-sm bg-black/40`}>
-              <p className="text-gray-400 text-xs mb-1">Your Score</p>
-              <p className={`text-6xl font-bold ${scoreColor}`}>{result.score}</p>
-              <p className="text-gray-500 text-xs mt-1">/ 100</p>
+          <div className="flex flex-col items-center gap-5">
+            <div className="relative flex flex-col items-center">
+              <p className={`text-7xl font-extralight tracking-tight ${scoreColor}`}>{result.score}</p>
+              <div className={`mt-1 h-px w-16 ${
+                result.score >= 70 ? 'bg-green-400/40' : result.score >= 40 ? 'bg-amber-400/40' : 'bg-red-400/40'
+              }`} />
+              <p className="text-white/30 text-[11px] tracking-[0.15em] uppercase mt-2">out of 100</p>
             </div>
 
-            {/* Brief summary */}
-            <p className="text-gray-200 text-sm leading-relaxed mb-6 max-w-md">{result.summary}</p>
-          </>
+            {/* Summary */}
+            <p className="text-white/70 text-[15px] leading-7 font-light max-w-sm">{result.summary}</p>
+          </div>
         ) : (
-          <div className="mb-6">
-            <div className="border border-gray-700/30 rounded-2xl px-10 py-6 backdrop-blur-sm bg-black/40">
-              <p className="text-gray-400 text-sm mb-3">Analyzing your timeline...</p>
-              <div className="flex justify-center gap-1">
-                <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
-                <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" style={{ animationDelay: '75ms' }} />
-                <span className="w-2 h-2 bg-amber-500 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
-              </div>
+          <div className="flex flex-col items-center gap-3 py-4">
+            <p className="text-white/50 text-sm font-light tracking-wide">Analyzing your timeline</p>
+            <div className="flex justify-center gap-1.5">
+              <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-pulse" />
+              <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-pulse" style={{ animationDelay: '75ms' }} />
+              <span className="w-1.5 h-1.5 bg-white/40 rounded-full animate-pulse" style={{ animationDelay: '150ms' }} />
             </div>
           </div>
         )}
 
         <button
           onClick={onPlayAgain}
-          className="px-8 py-3 bg-amber-600 hover:bg-amber-500 rounded-lg text-black font-semibold transition-all"
+          className="mt-2 px-8 py-3 bg-white/10 hover:bg-white/20 border border-white/20 rounded-full text-white text-sm font-medium tracking-wide transition-all duration-200"
         >
           Play Again
         </button>

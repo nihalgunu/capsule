@@ -66,7 +66,8 @@ NEW INTERVENTION at (${lat.toFixed(1)},${lng.toFixed(1)}): "${intervention}"
 
 RULES:
 - Every city causalNote MUST reference the exact previous intervention: "Because you [intervention text], [effect]."
-- worldNarrative (2-3 sentences) must reference previous decisions AND hint at progress toward interstellar travel
+- worldNarrative (2-3 sentences) must describe the world at ${endDisplay}. Reference previous decisions AND hint at progress toward interstellar travel
+- CRITICAL: Format all years as "X BC" or "X AD" in all text fields. NEVER use negative years like "-8000 BC". Use "8000 BC" instead.
 - Keep descriptions to 1 sentence per city
 - Return 10-15 cities (existing + 1-2 new)
 - Each city needs change: "brighter"|"dimmer"|"new"|"gone"|"unchanged"

@@ -44,16 +44,40 @@ export default function Globe({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Auto-rotate — faster during loading
+  // Auto-rotate — faster during loading, pause permanently on user interaction
+  const userTouchedRef = useRef(false);
+  const controlsReadyRef = useRef(false);
+
   useEffect(() => {
-    if (globeRef.current) {
-      const controls = globeRef.current.controls();
-      if (controls) {
-        controls.autoRotate = true;
-        controls.autoRotateSpeed = isLoading ? 1.2 : 0.3;
+    if (!globeRef.current) return;
+
+    const trySetup = () => {
+      const controls = globeRef.current?.controls();
+      if (!controls) return;
+
+      controls.autoRotateSpeed = isLoading ? 1.2 : 0.3;
+
+      if (userTouchedRef.current) {
+        controls.autoRotate = false;
+        return;
       }
-    }
-  }, [isLoading]);
+
+      controls.autoRotate = true;
+
+      if (!controlsReadyRef.current) {
+        controlsReadyRef.current = true;
+        controls.addEventListener('start', () => {
+          userTouchedRef.current = true;
+          controls.autoRotate = false;
+        });
+      }
+    };
+
+    // Controls may not be ready on first render, retry briefly
+    trySetup();
+    const t = setTimeout(trySetup, 500);
+    return () => clearTimeout(t);
+  }, [isLoading, dimensions]);
 
   // Fly to selected city (epoch 1 browsing)
   useEffect(() => {
@@ -124,11 +148,9 @@ export default function Globe({
   const pointAltitude = (d: object) => Math.max((d as City).brightness, 0.4) * 0.03;
   const pointRadius = (d: object) => {
     const city = d as City;
-    // Much larger base size for visibility
-    const base = Math.sqrt(city.population) * 0.003 + 0.6;
     const isHighlighted = (chosenCity && currentEpoch >= 2 && city.id === chosenCity.id)
       || (selectedCity && city.id === selectedCity.id);
-    return isHighlighted ? base * 2.5 : base;
+    return isHighlighted ? 1.5 : 0.7;
   };
   const pointColor = (d: object) => {
     const city = d as City;
@@ -199,6 +221,16 @@ export default function Globe({
         pointAltitude={pointAltitude}
         pointRadius={pointRadius}
         pointColor={pointColor}
+        pointLabel={(d: object) => {
+          const city = d as City;
+          if (city.causalNote) {
+            return `<div style="background:rgba(0,0,0,0.85);border:1px solid rgba(245,158,11,0.5);border-radius:6px;padding:6px 10px;max-width:220px;font-size:12px;">
+              <div style="color:#fbbf24;font-weight:600;margin-bottom:2px;">${city.name}</div>
+              <div style="color:#d1d5db;font-style:italic;">${city.causalNote}</div>
+            </div>`;
+          }
+          return `<div style="background:rgba(0,0,0,0.85);border:1px solid rgba(245,158,11,0.5);border-radius:6px;padding:4px 8px;font-size:12px;color:#fbbf24;font-weight:600;">${city.name}</div>`;
+        }}
         onPointClick={handlePointClick}
         arcsData={arcsData}
         arcStartLat={arcStartLat}

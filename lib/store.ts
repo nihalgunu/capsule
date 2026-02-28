@@ -137,13 +137,20 @@ export const useGameStore = create<GameStore>((set, get) => ({
         const nextEpoch = (currentEpoch + 1) as 1 | 2 | 3 | 4 | 5;
         setTimeout(() => {
           const nextMock = MOCK_DATA_BY_EPOCH[nextEpoch];
+          // Keep AI result cities (they have causalNotes) — use mock only for tradeRoutes/regions
+          const aiCities = result.citiesAffected || [];
+
           set({
             currentEpoch: nextEpoch,
             interventionsRemaining: 1,
-            worldState: nextMock ? {
-              ...nextMock,
+            worldState: {
+              year: nextMock?.year ?? epochConfig.endYear,
+              epoch: nextEpoch as 1 | 2 | 3 | 4 | 5,
+              cities: aiCities.length > 0 ? aiCities : (nextMock?.cities || []),
+              tradeRoutes: nextMock?.tradeRoutes || result.tradeRoutes || [],
+              regions: nextMock?.regions || result.regions || [],
               narrative: result.worldNarrative,
-            } : get().worldState,
+            },
           });
         }, 3000);
 

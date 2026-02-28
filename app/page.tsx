@@ -6,6 +6,7 @@ import YearCounter from '@/components/YearCounter';
 import CityDetail from '@/components/CityDetail';
 import NarrativePanel from '@/components/NarrativePanel';
 import GoalScreen from '@/components/GoalScreen';
+import AmbientMusic from '@/components/AmbientMusic';
 import { useGameStore } from '@/lib/store';
 import { City, InterventionResult, EPOCHS } from '@/lib/types';
 
@@ -32,6 +33,8 @@ export default function Home() {
   const [rippleCenter, setRippleCenter] = useState<{ lat: number; lng: number } | null>(null);
   const [rippleProgress, setRippleProgress] = useState(1);
   const [lastResult, setLastResult] = useState<InterventionResult | null>(null);
+
+  const [isNarrating, setIsNarrating] = useState(false);
 
   // Year counter animation state (tied to API response time)
   const [yearAnimating, setYearAnimating] = useState(false);
@@ -129,7 +132,12 @@ export default function Home() {
 
   // Show goal screen for epoch 5
   if (currentEpoch === 5) {
-    return <GoalScreen result={gameResult} chosenCity={chosenCity} onPlayAgain={handleReset} />;
+    return (
+      <>
+        <AmbientMusic />
+        <GoalScreen result={gameResult} chosenCity={chosenCity} onPlayAgain={handleReset} />
+      </>
+    );
   }
 
   // Wait for world state
@@ -142,6 +150,8 @@ export default function Home() {
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-black">
+      <AmbientMusic isNarrating={isNarrating} />
+
       {/* Globe */}
       <div className="absolute inset-0">
         <Globe
@@ -182,6 +192,7 @@ export default function Home() {
           narrative={worldState.narrative}
           previousInterventions={previousInterventions}
           currentEpoch={currentEpoch}
+          onNarrationChange={setIsNarrating}
         />
       )}
 
